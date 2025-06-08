@@ -8,175 +8,22 @@
 #property version   "1.00"
 #property strict
 
-// تضمين الملفات الأساسية
-#include "..\..\CandlePatterns\Base\CandlePattern.mqh"
+// تضمين التعريفات المشتركة
+#include "ChartCommonDefs.mqh"
 
-//+------------------------------------------------------------------+
-//| تعدادات أنماط المخططات                                           |
-//+------------------------------------------------------------------+
-enum ENUM_CHART_PATTERN_TYPE
-{
-   CHART_PATTERN_REVERSAL,        // أنماط الانعكاس
-   CHART_PATTERN_CONTINUATION,    // أنماط الاستمرار
-   CHART_PATTERN_BILATERAL,       // أنماط ثنائية الاتجاه
-   CHART_PATTERN_HARMONIC,        // أنماط توافقية
-   CHART_PATTERN_ELLIOTT,         // أمواج إليوت
-   CHART_PATTERN_VOLUME,          // أنماط الحجم
-   CHART_PATTERN_ADVANCED         // أنماط متقدمة
-};
-
-enum ENUM_CHART_PATTERN_STATUS
-{
-   CHART_PATTERN_FORMING,         // النمط قيد التكوين
-   CHART_PATTERN_COMPLETED,       // النمط مكتمل
-   CHART_PATTERN_CONFIRMED,       // النمط مؤكد
-   CHART_PATTERN_FAILED,          // النمط فاشل
-   CHART_PATTERN_PENDING          // النمط قيد الانتظار
-};
-
-enum ENUM_CHART_PATTERN_RELIABILITY
-{
-   CHART_RELIABILITY_LOW,         // موثوقية منخفضة (0-30%)
-   CHART_RELIABILITY_MEDIUM,      // موثوقية متوسطة (30-60%)
-   CHART_RELIABILITY_HIGH,        // موثوقية عالية (60-85%)
-   CHART_RELIABILITY_VERY_HIGH    // موثوقية عالية جداً (85-100%)
-};
-
-enum ENUM_CHART_POINT_TYPE
-{
-   CHART_POINT_UNKNOWN,           // نقطة غير معروفة
-   CHART_POINT_HIGH,              // قمة
-   CHART_POINT_LOW,               // قاع
-   CHART_POINT_SUPPORT,           // دعم
-   CHART_POINT_RESISTANCE,        // مقاومة
-   CHART_POINT_BREAKOUT,          // اختراق
-   CHART_POINT_RETEST             // إعادة اختبار
-};
-
-//+------------------------------------------------------------------+
-//| هيكل نقطة السعر                                                 |
-//+------------------------------------------------------------------+
-struct SChartPoint
-{
-   datetime          time;         // الوقت
-   double            price;        // السعر
-   int               index;        // الفهرس
-   ENUM_CHART_POINT_TYPE type;     // نوع النقطة
-   
-   SChartPoint()
-   {
-      time = 0;
-      price = 0.0;
-      index = -1;
-      type = CHART_POINT_UNKNOWN;
-   }
-   
-   SChartPoint(datetime t, double p, int idx, ENUM_CHART_POINT_TYPE pt_type)
-   {
-      time = t;
-      price = p;
-      index = idx;
-      type = pt_type;
-   }
-};
-
-//+------------------------------------------------------------------+
-//| هيكل خط الاتجاه                                                 |
-//+------------------------------------------------------------------+
-struct STrendLine
-{
-   SChartPoint       point1;       // النقطة الأولى
-   SChartPoint       point2;       // النقطة الثانية
-   double            slope;        // الميل
-   double            angle;        // الزاوية
-   bool              isValid;      // صحة الخط
-   int               touches;      // عدد مرات اللمس
-   double            strength;     // قوة خط الاتجاه
-   
-   STrendLine()
-   {
-      slope = 0.0;
-      angle = 0.0;
-      isValid = false;
-      touches = 0;
-      strength = 0.0;
-   }
-};
-
-//+------------------------------------------------------------------+
-//| هيكل نتيجة اكتشاف نمط المخطط                                    |
-//+------------------------------------------------------------------+
-struct SChartPatternResult
-{
-   string            patternName;           // اسم النمط
-   ENUM_CHART_PATTERN_TYPE patternType;     // نوع النمط
-   ENUM_CHART_PATTERN_STATUS status;        // حالة النمط
-   ENUM_PATTERN_DIRECTION direction;        // اتجاه النمط
-   ENUM_CHART_PATTERN_RELIABILITY reliability; // الموثوقية
-   
-   double            confidence;            // مستوى الثقة (0-1)
-   double            completionPercentage;  // نسبة الاكتمال (0-100)
-   
-   SChartPoint       keyPoints[];          // النقاط الرئيسية
-   STrendLine        trendLines[];         // خطوط الاتجاه
-   
-   double            priceTarget;          // الهدف السعري
-   double            stopLoss;             // وقف الخسارة
-   double            entryPrice;           // سعر الدخول
-   
-   datetime          formationStart;       // بداية التكوين
-   datetime          formationEnd;         // نهاية التكوين
-   datetime          detectionTime;        // وقت الاكتشاف
-   
-   int               barsInPattern;        // عدد الشموع في النمط
-   double            patternHeight;        // ارتفاع النمط
-   double            patternWidth;         // عرض النمط
-   
-   bool              isActive;             // النمط نشط
-   bool              isCompleted;          // النمط مكتمل
-   bool              hasVolConfirmation;   // تأكيد الحجم
-   
-   SChartPatternResult()
-   {
-      patternName = "";
-      patternType = CHART_PATTERN_REVERSAL;
-      status = CHART_PATTERN_FORMING;
-      direction = PATTERN_NEUTRAL;
-      reliability = CHART_RELIABILITY_LOW;
-      
-      confidence = 0.0;
-      completionPercentage = 0.0;
-      
-      ArrayResize(keyPoints, 0);
-      ArrayResize(trendLines, 0);
-      
-      priceTarget = 0.0;
-      stopLoss = 0.0;
-      entryPrice = 0.0;
-      
-      formationStart = 0;
-      formationEnd = 0;
-      detectionTime = 0;
-      
-      barsInPattern = 0;
-      patternHeight = 0.0;
-      patternWidth = 0.0;
-      
-      isActive = false;
-      isCompleted = false;
-      hasVolConfirmation = false;
-   }
-};
+// إعلان forward للفئة الأساسية لتجنب تضارب الأسماء
+class CCandlePattern;
 
 //+------------------------------------------------------------------+
 //| الفئة الأساسية لأنماط المخططات                                  |
 //+------------------------------------------------------------------+
-class CChartPattern : public CCandlePattern
+class CChartPattern
 {
 protected:
    // معلومات الرمز والإطار الزمني
    string            m_symbol;              // رمز التداول
    ENUM_TIMEFRAMES   m_timeframe;          // الإطار الزمني
+   bool              m_initialized;         // حالة التهيئة
    
    // معاملات النمط
    double            m_minPatternHeight;    // أقل ارتفاع للنمط
@@ -198,6 +45,7 @@ protected:
    
    // نوع النمط
    ENUM_CHART_PATTERN_TYPE m_patternType;
+   string            m_patternName;         // اسم النمط
    
 public:
    // المنشئ والهادم
@@ -206,10 +54,11 @@ public:
    
    // تهيئة النمط
    virtual bool      Initialize(const string symbol, const ENUM_TIMEFRAMES timeframe);
+   virtual void      Deinitialize();
    virtual void      SetParameters(const double minHeight, const double maxHeight, 
                                  const int minBars, const int maxBars);
    
-   // الكشف عن الأنماط
+   // الكشف عن الأنماط - دالة افتراضية يجب تنفيذها في الفئات المشتقة
    virtual bool      DetectPattern(const int startIdx, const string symbol, 
                                  const ENUM_TIMEFRAMES timeframe,
                                  const double &open[], const double &high[], 
@@ -243,6 +92,7 @@ public:
    void              SetUseVolumeConfirmation(const bool use) { m_useVolumeConfirmation = use; }
    void              SetStrictMode(const bool strict) { m_strictMode = strict; }
    void              SetPatternType(const ENUM_CHART_PATTERN_TYPE type) { m_patternType = type; }
+   void              SetPatternName(const string name) { m_patternName = name; }
    
    double            GetMinPatternHeight() const { return m_minPatternHeight; }
    double            GetMaxPatternHeight() const { return m_maxPatternHeight; }
@@ -252,6 +102,8 @@ public:
    bool              GetUseVolumeConfirmation() const { return m_useVolumeConfirmation; }
    bool              GetStrictMode() const { return m_strictMode; }
    ENUM_CHART_PATTERN_TYPE GetPatternType() const { return m_patternType; }
+   string            GetPatternName() const { return m_patternName; }
+   bool              IsInitialized() const { return m_initialized; }
    
 protected:
    // دوال مساعدة
@@ -267,15 +119,21 @@ protected:
    
    // تحليل خطوط الدعم والمقاومة
    virtual void      UpdateSupportResistance(const SChartPoint &highs[], const SChartPoint &lows[]);
+   
+   // دوال التحليل المساعدة
+   virtual bool      IsPointValid(const SChartPoint &point);
+   virtual double    GetPriceAtIndex(const double &prices[], const int index);
+   virtual datetime  GetTimeAtIndex(const int index);
 };
 
 //+------------------------------------------------------------------+
 //| المنشئ                                                           |
 //+------------------------------------------------------------------+
-CChartPattern::CChartPattern() : CCandlePattern()
+CChartPattern::CChartPattern()
 {
    m_symbol = "";
    m_timeframe = PERIOD_CURRENT;
+   m_initialized = false;
    
    m_minPatternHeight = 0.0;
    m_maxPatternHeight = 0.0;
@@ -287,6 +145,7 @@ CChartPattern::CChartPattern() : CCandlePattern()
    m_strictMode = false;
    m_minVolatility = 0.0;
    m_patternType = CHART_PATTERN_REVERSAL;
+   m_patternName = "نمط عام";
    
    ArrayResize(m_recentHighs, 0);
    ArrayResize(m_recentLows, 0);
@@ -299,10 +158,7 @@ CChartPattern::CChartPattern() : CCandlePattern()
 //+------------------------------------------------------------------+
 CChartPattern::~CChartPattern()
 {
-   ArrayFree(m_recentHighs);
-   ArrayFree(m_recentLows);
-   ArrayFree(m_supportLines);
-   ArrayFree(m_resistanceLines);
+   Deinitialize();
 }
 
 //+------------------------------------------------------------------+
@@ -311,13 +167,8 @@ CChartPattern::~CChartPattern()
 bool CChartPattern::Initialize(const string symbol, const ENUM_TIMEFRAMES timeframe)
 {
    // تهيئة المتغيرات الأساسية
-   m_symbol = symbol;
-   m_timeframe = timeframe;
-   
-   // تحديد الرمز والإطار الزمني
-   // ملاحظة: إذا كانت الفئة الأساسية تحتوي على دالة Initialize، قم بإلغاء التعليق عن السطر التالي
-   // if(!CCandlePattern::Initialize(symbol, timeframe))
-   //    return false;
+   m_symbol = (symbol == "") ? Symbol() : symbol;
+   m_timeframe = (timeframe == PERIOD_CURRENT) ? Period() : timeframe;
    
    // تحديد المعاملات التلقائية بناءً على الإطار الزمني
    switch(timeframe)
@@ -357,7 +208,25 @@ bool CChartPattern::Initialize(const string symbol, const ENUM_TIMEFRAMES timefr
          break;
    }
    
+   m_initialized = true;
+   Print("تم تهيئة نمط المخطط: ", m_patternName, " للرمز: ", m_symbol, " الإطار الزمني: ", EnumToString(m_timeframe));
+   
    return true;
+}
+
+//+------------------------------------------------------------------+
+//| إنهاء النمط                                                     |
+//+------------------------------------------------------------------+
+void CChartPattern::Deinitialize()
+{
+   if(m_initialized)
+   {
+      ArrayFree(m_recentHighs);
+      ArrayFree(m_recentLows);
+      ArrayFree(m_supportLines);
+      ArrayFree(m_resistanceLines);
+      m_initialized = false;
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -366,10 +235,10 @@ bool CChartPattern::Initialize(const string symbol, const ENUM_TIMEFRAMES timefr
 void CChartPattern::SetParameters(const double minHeight, const double maxHeight, 
                                  const int minBars, const int maxBars)
 {
-   m_minPatternHeight = minHeight;
-   m_maxPatternHeight = maxHeight;
-   m_minPatternBars = minBars;
-   m_maxPatternBars = maxBars;
+   m_minPatternHeight = MathMax(0.0, minHeight);
+   m_maxPatternHeight = MathMax(minHeight, maxHeight);
+   m_minPatternBars = MathMax(3, minBars);
+   m_maxPatternBars = MathMax(minBars, maxBars);
 }
 
 //+------------------------------------------------------------------+
@@ -485,7 +354,7 @@ bool CChartPattern::FindKeyPoints(const int startIdx, const int endIdx,
          SChartPoint point;
          point.index = i;
          point.price = high[i];
-         point.time = iTime(m_symbol, m_timeframe, i);
+         point.time = GetTimeAtIndex(i);
          point.type = CHART_POINT_HIGH;
          
          int size = ArraySize(keyPoints);
@@ -499,7 +368,7 @@ bool CChartPattern::FindKeyPoints(const int startIdx, const int endIdx,
          SChartPoint point;
          point.index = i;
          point.price = low[i];
-         point.time = iTime(m_symbol, m_timeframe, i);
+         point.time = GetTimeAtIndex(i);
          point.type = CHART_POINT_LOW;
          
          int size = ArraySize(keyPoints);
@@ -533,14 +402,19 @@ bool CChartPattern::AnalyzeTrendLines(const SChartPoint &points[], STrendLine &l
             line.point1 = points[i];
             line.point2 = points[j];
             
-            // حساب الميل
-            if(points[j].index != points[i].index)
+            // حساب الميل والزاوية
+            line.slope = CalculateTrendLineSlope(line);
+            line.angle = CalculateTrendLineAngle(line);
+            line.direction = DetermineTrendDirection(line.slope);
+            
+            if(IsValidTrendLine(line))
             {
-               line.slope = (points[j].price - points[i].price) / (points[j].index - points[i].index);
-               line.angle = MathArctan(line.slope) * 180.0 / M_PI;
                line.isValid = true;
                line.touches = 2;
                line.strength = CalculateTrendLineStrength(line);
+               
+               // تحديث البيانات المتوافقة
+               line.UpdateFromPoints();
                
                int size = ArraySize(lines);
                ArrayResize(lines, size + 1);
@@ -702,4 +576,24 @@ void CChartPattern::UpdateSupportResistance(const SChartPoint &highs[], const SC
    
    // إنشاء خطوط الدعم من القيعان
    AnalyzeTrendLines(lows, m_supportLines);
+}
+
+//+------------------------------------------------------------------+
+//| دوال مساعدة إضافية                                              |
+//+------------------------------------------------------------------+
+bool CChartPattern::IsPointValid(const SChartPoint &point)
+{
+   return IsValidChartPoint(point);
+}
+
+double CChartPattern::GetPriceAtIndex(const double &prices[], const int index)
+{
+   if(index >= 0 && index < ArraySize(prices))
+      return prices[index];
+   return 0.0;
+}
+
+datetime CChartPattern::GetTimeAtIndex(const int index)
+{
+   return iTime(m_symbol, m_timeframe, index);
 }

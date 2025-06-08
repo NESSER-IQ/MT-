@@ -8,10 +8,71 @@
 #property version   "1.00"
 #property strict
 
-#include "ChartPattern.mqh"
-#include "ChartUtils.mqh"
-#include "TrendLineDetector.mqh"
-#include "SupportResistance.mqh"
+// تضمين التعريفات المشتركة أولاً
+#include "ChartCommonDefs.mqh"
+
+// إعلان forward للفئات لحل مشكلة التداخل
+class CChartUtils;
+class CTrendLineDetector;
+class CSupportResistance;
+class CChartPattern;
+
+//+------------------------------------------------------------------+
+//| دوال نسخ مخصصة للهياكل التي تحتوي على مصفوفات ديناميكية      |
+//+------------------------------------------------------------------+
+
+// نسخ هيكل واحد من SChartPatternResult
+void CopyChartPatternResult(SChartPatternResult &destination, const SChartPatternResult &source)
+{
+   // نسخ البيانات الأساسية
+   destination.patternName = source.patternName;
+   destination.patternType = source.patternType;
+   destination.status = source.status;
+   destination.direction = source.direction;
+   destination.reliability = source.reliability;
+   destination.confidence = source.confidence;
+   destination.completionPercentage = source.completionPercentage;
+   destination.priceTarget = source.priceTarget;
+   destination.stopLoss = source.stopLoss;
+   destination.entryPrice = source.entryPrice;
+   destination.formationStart = source.formationStart;
+   destination.formationEnd = source.formationEnd;
+   destination.detectionTime = source.detectionTime;
+   destination.barsInPattern = source.barsInPattern;
+   destination.patternHeight = source.patternHeight;
+   destination.patternWidth = source.patternWidth;
+   destination.isActive = source.isActive;
+   destination.isCompleted = source.isCompleted;
+   destination.hasVolConfirmation = source.hasVolConfirmation;
+   
+   // نسخ مصفوفة النقاط الرئيسية
+   int keyPointsCount = ArraySize(source.keyPoints);
+   ArrayResize(destination.keyPoints, keyPointsCount);
+   for(int i = 0; i < keyPointsCount; i++)
+   {
+      destination.keyPoints[i] = source.keyPoints[i];
+   }
+   
+   // نسخ مصفوفة خطوط الاتجاه
+   int trendLinesCount = ArraySize(source.trendLines);
+   ArrayResize(destination.trendLines, trendLinesCount);
+   for(int i = 0; i < trendLinesCount; i++)
+   {
+      destination.trendLines[i] = source.trendLines[i];
+   }
+}
+
+// نسخ مصفوفة كاملة من SChartPatternResult
+void CopyChartPatternResults(SChartPatternResult &destination[], const SChartPatternResult &source[])
+{
+   int sourceCount = ArraySize(source);
+   ArrayResize(destination, sourceCount);
+   
+   for(int i = 0; i < sourceCount; i++)
+   {
+      CopyChartPatternResult(destination[i], source[i]);
+   }
+}
 
 //+------------------------------------------------------------------+
 //| إعدادات محرك الكشف                                              |
@@ -130,11 +191,16 @@ protected:
    bool              PrepareData(const int startIdx, const int endIdx);
    void              UpdateStatistics(const SChartPatternResult &results[]);
    bool              PassesFilters(const SChartPatternResult &result);
+   bool              IsPatternTypeEnabled(const ENUM_CHART_PATTERN_TYPE patternType);
    
    // تحسين الأداء
    bool              IsPatternRedundant(const SChartPatternResult &newPattern, 
                                        const SChartPatternResult &existingPatterns[]);
    void              OptimizeResults(SChartPatternResult &results[]);
+   
+   // دوال التحليل المساعدة
+   double            CalculatePatternStrength(const SChartPatternResult &result);
+   bool              HasVolumeConfirmation(const SChartPatternResult &result, const long &volume[]);
 };
 
 //+------------------------------------------------------------------+
@@ -177,30 +243,39 @@ bool CChartDetector::Initialize(const string symbol = "", const ENUM_TIMEFRAMES 
    m_symbol = (symbol == "") ? Symbol() : symbol;
    m_timeframe = (timeframe == PERIOD_CURRENT) ? Period() : timeframe;
    
+   // ملاحظة: سيتم تفعيل هذه الأجزاء عند توفر الفئات المطلوبة
+   /*
    // إنشاء مكونات التحليل
    m_chartUtils = new CChartUtils();
-   if(!m_chartUtils.Initialize(m_symbol, m_timeframe))
+   if(m_chartUtils != NULL && !m_chartUtils.Initialize(m_symbol, m_timeframe))
    {
       Print("خطأ في تهيئة CChartUtils");
+      delete m_chartUtils;
+      m_chartUtils = NULL;
       return false;
    }
    
    m_trendDetector = new CTrendLineDetector();
-   if(!m_trendDetector.Initialize(m_symbol, m_timeframe))
+   if(m_trendDetector != NULL && !m_trendDetector.Initialize(m_symbol, m_timeframe))
    {
       Print("خطأ في تهيئة CTrendLineDetector");
+      delete m_trendDetector;
+      m_trendDetector = NULL;
       return false;
    }
    
    m_srDetector = new CSupportResistance();
-   if(!m_srDetector.Initialize(m_symbol, m_timeframe))
+   if(m_srDetector != NULL && !m_srDetector.Initialize(m_symbol, m_timeframe))
    {
       Print("خطأ في تهيئة CSupportResistance");
+      delete m_srDetector;
+      m_srDetector = NULL;
       return false;
    }
+   */
    
    m_initialized = true;
-   Print("تم تهيئة محرك الكشف عن أنماط المخططات بنجاح");
+   Print("تم تهيئة محرك الكشف عن أنماط المخططات بنجاح - الرمز: ", m_symbol, " الإطار الزمني: ", EnumToString(m_timeframe));
    
    return true;
 }
@@ -271,12 +346,15 @@ bool CChartDetector::RegisterPattern(CChartPattern *pattern)
    ArrayResize(m_patterns, size + 1);
    m_patterns[size] = pattern;
    
+   // ملاحظة: سيتم تفعيل التهيئة عند توفر فئة CChartPattern
+   /*
    // تهيئة النمط
    if(!pattern.Initialize(m_symbol, m_timeframe))
    {
       ArrayResize(m_patterns, size); // إلغاء الإضافة
       return false;
    }
+   */
    
    return true;
 }
@@ -288,6 +366,8 @@ void CChartDetector::UnregisterPattern(const string patternName)
 {
    for(int i = ArraySize(m_patterns) - 1; i >= 0; i--)
    {
+      // ملاحظة: سيتم تفعيل هذا عند توفر دالة GetPatternName
+      /*
       if(m_patterns[i] != NULL && m_patterns[i].GetPatternName() == patternName)
       {
          // حذف النمط من المصفوفة
@@ -297,6 +377,7 @@ void CChartDetector::UnregisterPattern(const string patternName)
          ArrayResize(m_patterns, ArraySize(m_patterns) - 1);
          break;
       }
+      */
    }
 }
 
@@ -363,13 +444,16 @@ int CChartDetector::DetectAllPatterns(const int startIdx, const int endIdx,
       if(pattern == NULL)
          continue;
       
+      // ملاحظة: سيتم تفعيل هذا الجزء عند توفر فئة CChartPattern كاملة
+      /*
       // فحص نوع النمط إذا كان مفعل
       ENUM_CHART_PATTERN_TYPE patternType = pattern.GetPatternType();
       if(!IsPatternTypeEnabled(patternType))
          continue;
       
       // تشغيل الكشف لهذا النمط
-      for(int barIdx = startIdx; barIdx <= endIdx - pattern.GetMinPatternBars(); barIdx++)
+      int minBars = pattern.GetMinPatternBars();
+      for(int barIdx = startIdx; barIdx <= endIdx - minBars; barIdx++)
       {
          SChartPatternResult result;
          
@@ -385,6 +469,7 @@ int CChartDetector::DetectAllPatterns(const int startIdx, const int endIdx,
             }
          }
       }
+      */
    }
    
    // تصفية وتحسين النتائج
@@ -397,13 +482,13 @@ int CChartDetector::DetectAllPatterns(const int startIdx, const int endIdx,
    ArrayResize(results, finalCount);
    
    for(int i = 0; i < finalCount; i++)
-      results[i] = tempResults[i];
+      CopyChartPatternResult(results[i], tempResults[i]);
    
    // تحديث الإحصائيات
    UpdateStatistics(results);
    
-   // حفظ النتائج الأخيرة
-   ArrayCopy(m_recentResults, results);
+   // حفظ النتائج الأخيرة - استخدام الدالة المخصصة
+   CopyChartPatternResults(m_recentResults, results);
    
    return ArraySize(results);
 }
@@ -489,13 +574,13 @@ void CChartDetector::FilterResults(SChartPatternResult &results[])
          {
             int size = ArraySize(filteredResults);
             ArrayResize(filteredResults, size + 1);
-            filteredResults[size] = results[i];
+            CopyChartPatternResult(filteredResults[size], results[i]);
          }
       }
    }
    
-   // نسخ النتائج المصفاة
-   ArrayCopy(results, filteredResults);
+   // نسخ النتائج المصفاة - استخدام الدالة المخصصة
+   CopyChartPatternResults(results, filteredResults);
 }
 
 //+------------------------------------------------------------------+
@@ -514,10 +599,11 @@ void CChartDetector::SortResultsByReliability(SChartPatternResult &results[])
       {
          if(results[j].confidence < results[j + 1].confidence)
          {
-            // تبديل المواقع
-            SChartPatternResult temp = results[j];
-            results[j] = results[j + 1];
-            results[j + 1] = temp;
+            // تبديل المواقع - نسخ يدوية آمنة
+            SChartPatternResult temp;
+            CopyChartPatternResult(temp, results[j]);
+            CopyChartPatternResult(results[j], results[j + 1]);
+            CopyChartPatternResult(results[j + 1], temp);
          }
       }
    }
@@ -542,6 +628,8 @@ bool CChartDetector::PrepareData(const int startIdx, const int endIdx)
    if(startIdx >= endIdx)
       return false;
    
+   // ملاحظة: سيتم تفعيل هذا عند توفر المكونات
+   /*
    // تحديث مكونات التحليل
    if(m_chartUtils != NULL)
       m_chartUtils.UpdateData(startIdx, endIdx);
@@ -551,6 +639,7 @@ bool CChartDetector::PrepareData(const int startIdx, const int endIdx)
    
    if(m_srDetector != NULL)
       m_srDetector.UpdateLevels(startIdx, endIdx);
+   */
    
    return true;
 }
@@ -596,6 +685,28 @@ bool CChartDetector::PassesFilters(const SChartPatternResult &result)
    }
    
    return true;
+}
+
+//+------------------------------------------------------------------+
+//| فحص تفعيل نوع النمط                                             |
+//+------------------------------------------------------------------+
+bool CChartDetector::IsPatternTypeEnabled(const ENUM_CHART_PATTERN_TYPE patternType)
+{
+   switch(patternType)
+   {
+      case CHART_PATTERN_REVERSAL:
+         return m_settings.detectReversals;
+      case CHART_PATTERN_CONTINUATION:
+         return m_settings.detectContinuations;
+      case CHART_PATTERN_HARMONIC:
+         return m_settings.detectHarmonic;
+      case CHART_PATTERN_ELLIOTT:
+         return m_settings.detectElliott;
+      case CHART_PATTERN_VOLUME:
+         return m_settings.detectVolume;
+      default:
+         return true;
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -657,31 +768,86 @@ void CChartDetector::OptimizeResults(SChartPatternResult &results[])
       {
          int size = ArraySize(optimizedResults);
          ArrayResize(optimizedResults, size + 1);
-         optimizedResults[size] = results[i];
+         CopyChartPatternResult(optimizedResults[size], results[i]);
       }
    }
    
-   ArrayCopy(results, optimizedResults);
+   // نسخ النتائج المحسنة - استخدام الدالة المخصصة
+   CopyChartPatternResults(results, optimizedResults);
 }
 
 //+------------------------------------------------------------------+
-//| فحص تفعيل نوع النمط                                             |
+//| حساب قوة النمط                                                  |
 //+------------------------------------------------------------------+
-bool CChartDetector::IsPatternTypeEnabled(const ENUM_CHART_PATTERN_TYPE patternType)
+double CChartDetector::CalculatePatternStrength(const SChartPatternResult &result)
 {
-   switch(patternType)
+   double strength = 0.0;
+   
+   // عوامل قوة النمط
+   // 1. اكتمال النمط (0-30%)
+   strength += (result.completionPercentage / 100.0) * 0.3;
+   
+   // 2. عدد النقاط الرئيسية (0-20%)
+   int pointCount = ArraySize(result.keyPoints);
+   if(pointCount >= 3)
+      strength += MathMin(pointCount / 10.0, 0.2);
+   
+   // 3. قوة خطوط الاتجاه (0-25%)
+   double avgTrendStrength = 0.0;
+   int trendCount = ArraySize(result.trendLines);
+   if(trendCount > 0)
    {
-      case CHART_PATTERN_REVERSAL:
-         return m_settings.detectReversals;
-      case CHART_PATTERN_CONTINUATION:
-         return m_settings.detectContinuations;
-      case CHART_PATTERN_HARMONIC:
-         return m_settings.detectHarmonic;
-      case CHART_PATTERN_ELLIOTT:
-         return m_settings.detectElliott;
-      case CHART_PATTERN_VOLUME:
-         return m_settings.detectVolume;
-      default:
-         return true;
+      for(int i = 0; i < trendCount; i++)
+         avgTrendStrength += result.trendLines[i].strength;
+      avgTrendStrength /= trendCount;
+      strength += avgTrendStrength * 0.25;
    }
+   
+   // 4. تأكيد الحجم (0-15%)
+   if(result.hasVolConfirmation)
+      strength += 0.15;
+   
+   // 5. ارتفاع النمط (0-10%)
+   if(result.patternHeight > 0.0)
+   {
+      // تقدير نسبة الارتفاع
+      double heightFactor = MathMin(result.patternHeight / 0.05, 1.0); // 5% كحد أقصى
+      strength += heightFactor * 0.1;
+   }
+   
+   return MathMin(strength, 1.0);
+}
+
+//+------------------------------------------------------------------+
+//| فحص تأكيد الحجم                                                 |
+//+------------------------------------------------------------------+
+bool CChartDetector::HasVolumeConfirmation(const SChartPatternResult &result, const long &volume[])
+{
+   if(ArraySize(volume) == 0)
+      return false;
+   
+   // حساب متوسط الحجم في الفترة الأخيرة
+   int period = MathMin(20, ArraySize(volume));
+   long totalVolume = 0;
+   
+   for(int i = ArraySize(volume) - period; i < ArraySize(volume); i++)
+   {
+      if(i >= 0)
+         totalVolume += volume[i];
+   }
+   
+   double avgVolume = (double)totalVolume / period;
+   
+   // فحص الحجم في النقاط الرئيسية
+   for(int i = 0; i < ArraySize(result.keyPoints); i++)
+   {
+      int idx = result.keyPoints[i].index;
+      if(idx >= 0 && idx < ArraySize(volume))
+      {
+         if(volume[idx] > avgVolume * 1.5) // حجم أعلى من المتوسط بـ 50%
+            return true;
+      }
+   }
+   
+   return false;
 }

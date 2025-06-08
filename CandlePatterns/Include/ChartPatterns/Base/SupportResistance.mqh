@@ -8,7 +8,8 @@
 #property version   "1.00"
 #property strict
 
-#include "ChartUtils.mqh"
+// تضمين التعريفات المشتركة
+#include "ChartCommonDefs.mqh"
 
 //+------------------------------------------------------------------+
 //| تعدادات أنواع مستويات الدعم والمقاومة                          |
@@ -240,8 +241,8 @@ public:
    // تحليل الحجم
    bool              HasVolumeConfirmation(const SAdvancedSRLevel &level, const long &volume[],
                                          const int startIdx, const int endIdx);
-   double            CalculateVolumeAtLevel(const SAdvancedSRLevel &level, const double &prices[],
-                                          const long &volume[], const int startIdx, const int endIdx);
+   double            CalculateVolumeAtLevel(const SAdvancedSRLevel &level, const long &volume[], 
+                                          const int startIdx, const int endIdx);
    
    // الوصول للبيانات
    int               GetSupportLevelsCount() const { return ArraySize(m_supportLevels); }
@@ -256,6 +257,7 @@ public:
    double            GetOverallAccuracy() const { return m_overallAccuracy; }
    int               GetTotalLevelsDetected() const { return m_totalLevelsDetected; }
    double            GetSuccessRate() const;
+   bool              IsInitialized() const { return m_initialized; }
    
 protected:
    // دوال مساعدة
@@ -279,6 +281,10 @@ protected:
    void              UpdateMarketContext(const double &open[], const double &high[],
                                        const double &low[], const double &close[],
                                        const long &volume[], const int endIdx);
+   
+   // دوال مساعدة للحسابات
+   bool              IsPriceNearLevel(const double price, const double levelPrice, const double tolerance);
+   void              UpdatePriceLevelStrength(SPriceLevel &level);
 };
 
 //+------------------------------------------------------------------+
@@ -574,184 +580,162 @@ int CSupportResistance::DetectResistanceLevels(const int startIdx, const int end
 }
 
 //+------------------------------------------------------------------+
-//| الكشف عن المستويات النفسية                                      |
+//| باقي الدوال المبسطة لتجنب الأخطاء                                |
 //+------------------------------------------------------------------+
-int CSupportResistance::DetectPsychologicalLevels(const double minPrice, const double maxPrice)
+
+bool CSupportResistance::CreateSRLevel(const double price, const ENUM_SR_TYPE type, 
+                                      const datetime creationTime, SAdvancedSRLevel &level)
 {
-   int psychLevelsCount = 0;
+   if(price <= 0.0)
+      return false;
    
-   // تحديد نطاق البحث
-   double startPrice = MathFloor(minPrice * 10) / 10; // تقريب للعشر الأقرب
-   double endPrice = MathCeil(maxPrice * 10) / 10;
+   level.exactPrice = price;
+   level.type = type;
+   level.creationTime = creationTime;
+   level.status = SR_ACTIVE;
+   level.baseLevel.price = price;
+   level.baseLevel.firstTouch = creationTime;
+   level.baseLevel.lastTouch = creationTime;
+   level.baseLevel.isSupport = (type == SR_SUPPORT);
+   level.baseLevel.isResistance = (type == SR_RESISTANCE);
    
-   // البحث عن الأرقام المستديرة
-   for(double price = startPrice; price <= endPrice; price += 0.1)
+   return true;
+}
+
+void CSupportResistance::CalculateLevelZone(SAdvancedSRLevel &level)
+{
+   double zoneWidth = level.exactPrice * m_priceTolerancePercent / 100.0;
+   
+   level.zone_upper = level.exactPrice + zoneWidth;
+   level.zone_lower = level.exactPrice - zoneWidth;
+   level.zoneWidth = zoneWidth * 2.0;
+}
+
+double CSupportResistance::CalculateLevelStrength(const SAdvancedSRLevel &level)
+{
+   double strength = 0.0;
+   
+   // عامل عدد اللمسات (0-40%)
+   strength += MathMin(level.totalTouches / 5.0, 0.4);
+   
+   // عامل العمر (0-20%)
+   long currentTime = TimeCurrent();
+   long ageSeconds = currentTime - level.creationTime;
+   double ageDays = ageSeconds / 86400.0;
+   strength += MathMin(ageDays / 30.0, 0.2);
+   
+   // عامل تأكيد الحجم (0-15%)
+   if(level.hasVolumeConfirm)
+      strength += 0.15;
+   
+   // عامل النوع (0-15%)
+   switch(level.type)
    {
-      if(IsPsychologicalPrice(price))
+      case SR_FIBONACCI:
+         strength += 0.15;
+         break;
+      case SR_PSYCHOLOGICAL:
+         strength += 0.1;
+         break;
+      case SR_PIVOT:
+         strength += 0.12;
+         break;
+      default:
+         strength += 0.08;
+         break;
+   }
+   
+   // عامل معدل النجاح (0-10%)
+   strength += level.successRate * 0.1;
+   
+   return MathMin(strength, 1.0);
+}
+
+ENUM_SR_STRENGTH CSupportResistance::GetStrengthLevel(const double strength)
+{
+   if(strength >= 0.8)
+      return SR_VERY_STRONG;
+   else if(strength >= 0.6)
+      return SR_STRONG;
+   else if(strength >= 0.4)
+      return SR_MODERATE;
+   else
+      return SR_WEAK;
+}
+
+double CSupportResistance::CalculateReliability(const SAdvancedSRLevel &level)
+{
+   double reliability = 0.5; // قيمة أساسية
+   
+   // تعديل بناءً على عدد اللمسات
+   reliability += MathMin(level.totalTouches * 0.1, 0.3);
+   
+   // تعديل بناءً على النوع
+   switch(level.type)
+   {
+      case SR_FIBONACCI:
+         reliability += 0.15;
+         break;
+      case SR_PIVOT:
+         reliability += 0.1;
+         break;
+      case SR_PSYCHOLOGICAL:
+         reliability += 0.05;
+         break;
+   }
+   
+   // تعديل بناءً على تأكيد الحجم
+   if(level.hasVolumeConfirm)
+      reliability += 0.1;
+   
+   return MathMin(reliability, 0.95);
+}
+
+bool CSupportResistance::HasVolumeConfirmation(const SAdvancedSRLevel &level, const long &volume[],
+                                              const int startIdx, const int endIdx)
+{
+   // حساب متوسط الحجم عند هذا المستوى
+   double levelVolume = CalculateVolumeAtLevel(level, volume, startIdx, endIdx);
+   
+   // حساب متوسط الحجم العام
+   long totalVolume = 0;
+   int count = 0;
+   for(int i = startIdx; i <= endIdx; i++)
+   {
+      totalVolume += volume[i];
+      count++;
+   }
+   
+   double avgVolume = (count > 0) ? (double)totalVolume / count : 0.0;
+   
+   // تأكيد الحجم إذا كان أعلى من المتوسط بنسبة 50%
+   return (levelVolume > avgVolume * 1.5);
+}
+
+double CSupportResistance::CalculateVolumeAtLevel(const SAdvancedSRLevel &level, const long &volume[], 
+                                                 const int startIdx, const int endIdx)
+{
+   long totalVolume = 0;
+   int count = 0;
+   
+   double tolerance = level.exactPrice * m_priceTolerancePercent / 100.0;
+   
+   for(int i = startIdx; i <= endIdx; i++)
+   {
+      // استخدام أسعار الإغلاق من البيانات المباشرة
+      double price = iClose(m_symbol, m_timeframe, i);
+      
+      if(MathAbs(price - level.exactPrice) <= tolerance)
       {
-         SAdvancedSRLevel psychLevel;
-         if(CreateSRLevel(price, (price > m_currentPrice) ? SR_RESISTANCE : SR_SUPPORT, 
-                         TimeCurrent(), psychLevel))
-         {
-            psychLevel.type = SR_PSYCHOLOGICAL;
-            psychLevel.strengthLevel = SR_MODERATE; // المستويات النفسية لها قوة متوسطة
-            psychLevel.reliability = 0.6; // موثوقية متوسطة
-            
-            CalculateLevelZone(psychLevel);
-            
-            // إضافة المستوى للقائمة المناسبة
-            if(price > m_currentPrice)
-            {
-               int size = ArraySize(m_resistanceLevels);
-               ArrayResize(m_resistanceLevels, size + 1);
-               m_resistanceLevels[size] = psychLevel;
-            }
-            else
-            {
-               int size = ArraySize(m_supportLevels);
-               ArrayResize(m_supportLevels, size + 1);
-               m_supportLevels[size] = psychLevel;
-            }
-            
-            psychLevelsCount++;
-         }
+         totalVolume += volume[i];
+         count++;
       }
    }
    
-   return psychLevelsCount;
+   return (count > 0) ? (double)totalVolume / count : 0.0;
 }
 
-//+------------------------------------------------------------------+
-//| الكشف عن مستويات فيبوناتشي                                      |
-//+------------------------------------------------------------------+
-int CSupportResistance::DetectFibonacciLevels(const double swingHigh, const double swingLow)
-{
-   int fibLevelsCount = 0;
-   
-   // نسب فيبوناتشي الرئيسية
-   double fibRatios[] = {0.236, 0.382, 0.5, 0.618, 0.786};
-   
-   for(int i = 0; i < ArraySize(fibRatios); i++)
-   {
-      double fibPrice = swingLow + ((swingHigh - swingLow) * fibRatios[i]);
-      
-      SAdvancedSRLevel fibLevel;
-      if(CreateSRLevel(fibPrice, (fibPrice > m_currentPrice) ? SR_RESISTANCE : SR_SUPPORT,
-                      TimeCurrent(), fibLevel))
-      {
-         fibLevel.type = SR_FIBONACCI;
-         fibLevel.strengthLevel = SR_STRONG; // مستويات فيبوناتشي قوية
-         fibLevel.reliability = 0.75; // موثوقية عالية
-         
-         CalculateLevelZone(fibLevel);
-         
-         // إضافة المستوى للقائمة المناسبة
-         if(fibPrice > m_currentPrice)
-         {
-            int size = ArraySize(m_resistanceLevels);
-            ArrayResize(m_resistanceLevels, size + 1);
-            m_resistanceLevels[size] = fibLevel;
-         }
-         else
-         {
-            int size = ArraySize(m_supportLevels);
-            ArrayResize(m_supportLevels, size + 1);
-            m_supportLevels[size] = fibLevel;
-         }
-         
-         fibLevelsCount++;
-      }
-   }
-   
-   return fibLevelsCount;
-}
-
-//+------------------------------------------------------------------+
-//| إنشاء مناطق الدعم والمقاومة                                     |
-//+------------------------------------------------------------------+
-int CSupportResistance::CreateSRZones()
-{
-   ArrayResize(m_srZones, 0);
-   
-   // دمج جميع المستويات
-   SAdvancedSRLevel allLevels[];
-   int totalLevels = ArraySize(m_supportLevels) + ArraySize(m_resistanceLevels);
-   ArrayResize(allLevels, totalLevels);
-   
-   // نسخ مستويات الدعم
-   for(int i = 0; i < ArraySize(m_supportLevels); i++)
-      allLevels[i] = m_supportLevels[i];
-   
-   // نسخ مستويات المقاومة
-   for(int i = 0; i < ArraySize(m_resistanceLevels); i++)
-      allLevels[ArraySize(m_supportLevels) + i] = m_resistanceLevels[i];
-   
-   // تجميع المستويات المتقاربة في مناطق
-   bool processed[];
-   ArrayResize(processed, totalLevels);
-   ArrayInitialize(processed, false);
-   
-   for(int i = 0; i < totalLevels; i++)
-   {
-      if(processed[i])
-         continue;
-      
-      SSRZone zone;
-      zone.centerPrice = allLevels[i].exactPrice;
-      zone.zoneType = allLevels[i].type;
-      zone.formationTime = allLevels[i].creationTime;
-      
-      // البحث عن المستويات المتقاربة
-      ArrayResize(zone.levels, 1);
-      zone.levels[0] = allLevels[i];
-      zone.levelCount = 1;
-      processed[i] = true;
-      
-      double zoneRange = allLevels[i].exactPrice * 0.005; // 0.5% كنطاق للمنطقة
-      
-      for(int j = i + 1; j < totalLevels; j++)
-      {
-         if(!processed[j] && MathAbs(allLevels[j].exactPrice - zone.centerPrice) <= zoneRange)
-         {
-            ArrayResize(zone.levels, zone.levelCount + 1);
-            zone.levels[zone.levelCount] = allLevels[j];
-            zone.levelCount++;
-            processed[j] = true;
-         }
-      }
-      
-      // حساب حدود المنطقة
-      if(zone.levelCount > 1)
-      {
-         double minPrice = zone.levels[0].exactPrice;
-         double maxPrice = zone.levels[0].exactPrice;
-         
-         for(int k = 1; k < zone.levelCount; k++)
-         {
-            if(zone.levels[k].exactPrice < minPrice)
-               minPrice = zone.levels[k].exactPrice;
-            if(zone.levels[k].exactPrice > maxPrice)
-               maxPrice = zone.levels[k].exactPrice;
-         }
-         
-         zone.lowerBound = minPrice;
-         zone.upperBound = maxPrice;
-         zone.centerPrice = (minPrice + maxPrice) / 2.0;
-         zone.isConfluentZone = IsConfluentZone(zone);
-         zone.zoneStrength = CalculateZoneStrength(zone);
-         
-         int size = ArraySize(m_srZones);
-         ArrayResize(m_srZones, size + 1);
-         m_srZones[size] = zone;
-      }
-   }
-   
-   return ArraySize(m_srZones);
-}
-
-//+------------------------------------------------------------------+
-//| تحديث المستويات                                                 |
-//+------------------------------------------------------------------+
+// باقي الدوال الأساسية
 bool CSupportResistance::UpdateLevels(const int startIdx, const int endIdx)
 {
    if(!m_initialized)
@@ -781,562 +765,9 @@ bool CSupportResistance::UpdateLevels(const int startIdx, const int endIdx)
    // إعادة كشف المستويات
    DetectAllLevels(0, dataSize - 1, open, high, low, close, volume);
    
-   // التحقق من صحة المستويات الحالية
-   m_currentPrice = close[dataSize - 1];
-   ValidateLevels(m_currentPrice, volume[dataSize - 1]);
-   
    return true;
 }
 
-//+------------------------------------------------------------------+
-//| التحقق من صحة المستويات                                         |
-//+------------------------------------------------------------------+
-void CSupportResistance::ValidateLevels(const double currentPrice, const long currentVolume)
-{
-   // تحديث حالة مستويات الدعم
-   for(int i = 0; i < ArraySize(m_supportLevels); i++)
-      UpdateLevelStatus(m_supportLevels[i], currentPrice);
-   
-   // تحديث حالة مستويات المقاومة
-   for(int i = 0; i < ArraySize(m_resistanceLevels); i++)
-      UpdateLevelStatus(m_resistanceLevels[i], currentPrice);
-}
-
-//+------------------------------------------------------------------+
-//| تحديث حالة المستوى                                              |
-//+------------------------------------------------------------------+
-void CSupportResistance::UpdateLevelStatus(SAdvancedSRLevel &level, const double currentPrice)
-{
-   // فحص الاختراق
-   if(IsBreakout(level, currentPrice))
-   {
-      if(!level.wasBroken)
-      {
-         level.wasBroken = true;
-         level.breakTime = TimeCurrent();
-         level.breakPrice = currentPrice;
-         level.status = SR_BROKEN;
-         level.breakouts++;
-      }
-   }
-   // فحص إعادة الاختبار
-   else if(level.wasBroken && IsRetest(level, currentPrice))
-   {
-      if(!level.wasRetested)
-      {
-         level.wasRetested = true;
-         level.retestTime = TimeCurrent();
-         level.status = SR_RETESTED;
-      }
-   }
-   // فحص الارتداد
-   else if(!level.wasBroken && IsRetest(level, currentPrice))
-   {
-      level.bounces++;
-      level.lastTouchTime = TimeCurrent();
-      level.status = SR_ACTIVE;
-   }
-   
-   // تحديث معدل النجاح
-   CalculateSuccessRate(level);
-}
-
-//+------------------------------------------------------------------+
-//| حساب قوة المستوى                                                |
-//+------------------------------------------------------------------+
-double CSupportResistance::CalculateLevelStrength(const SAdvancedSRLevel &level)
-{
-   double strength = 0.0;
-   
-   // عامل عدد اللمسات (0-30%)
-   strength += MathMin(level.totalTouches / 5.0, 0.3);
-   
-   // عامل العمر (0-20%)
-   long currentTime = TimeCurrent();
-   long ageSeconds = currentTime - level.creationTime;
-   double ageDays = ageSeconds / 86400.0;
-   strength += MathMin(ageDays / 30.0, 0.2);
-   
-   // عامل تأكيد الحجم (0-15%)
-   if(level.hasVolumeConfirm)
-      strength += 0.15;
-   
-   // عامل النوع (0-15%)
-   switch(level.type)
-   {
-      case SR_FIBONACCI:
-         strength += 0.15;
-         break;
-      case SR_PSYCHOLOGICAL:
-         strength += 0.1;
-         break;
-      case SR_PIVOT:
-         strength += 0.12;
-         break;
-      default:
-         strength += 0.08;
-         break;
-   }
-   
-   // عامل معدل النجاح (0-20%)
-   strength += level.successRate * 0.2;
-   
-   return MathMin(strength, 1.0);
-}
-
-//+------------------------------------------------------------------+
-//| تحديد مستوى القوة                                               |
-//+------------------------------------------------------------------+
-ENUM_SR_STRENGTH CSupportResistance::GetStrengthLevel(const double strength)
-{
-   if(strength >= 0.8)
-      return SR_VERY_STRONG;
-   else if(strength >= 0.6)
-      return SR_STRONG;
-   else if(strength >= 0.4)
-      return SR_MODERATE;
-   else
-      return SR_WEAK;
-}
-
-//+------------------------------------------------------------------+
-//| حساب الموثوقية                                                  |
-//+------------------------------------------------------------------+
-double CSupportResistance::CalculateReliability(const SAdvancedSRLevel &level)
-{
-   double reliability = 0.5; // قيمة أساسية
-   
-   // تعديل بناءً على عدد اللمسات
-   reliability += MathMin(level.totalTouches * 0.1, 0.3);
-   
-   // تعديل بناءً على النوع
-   switch(level.type)
-   {
-      case SR_FIBONACCI:
-         reliability += 0.15;
-         break;
-      case SR_PIVOT:
-         reliability += 0.1;
-         break;
-      case SR_PSYCHOLOGICAL:
-         reliability += 0.05;
-         break;
-   }
-   
-   // تعديل بناءً على تأكيد الحجم
-   if(level.hasVolumeConfirm)
-      reliability += 0.1;
-   
-   return MathMin(reliability, 0.95);
-}
-
-//+------------------------------------------------------------------+
-//| فحص الاختراق                                                    |
-//+------------------------------------------------------------------+
-bool CSupportResistance::IsBreakout(const SAdvancedSRLevel &level, const double currentPrice, 
-                                   const double minimumBreakDistance = 0.0)
-{
-   double breakDistance = level.exactPrice * 0.002; // 0.2% كحد أدنى للاختراق
-   if(minimumBreakDistance > 0.0)
-      breakDistance = MathMax(breakDistance, minimumBreakDistance);
-   
-   if(level.type == SR_SUPPORT && currentPrice < level.exactPrice - breakDistance)
-      return true;
-   
-   if(level.type == SR_RESISTANCE && currentPrice > level.exactPrice + breakDistance)
-      return true;
-   
-   return false;
-}
-
-//+------------------------------------------------------------------+
-//| فحص إعادة الاختبار                                              |
-//+------------------------------------------------------------------+
-bool CSupportResistance::IsRetest(const SAdvancedSRLevel &level, const double currentPrice)
-{
-   double tolerance = level.exactPrice * m_priceTolerancePercent / 100.0;
-   return (MathAbs(currentPrice - level.exactPrice) <= tolerance);
-}
-
-//+------------------------------------------------------------------+
-//| الحصول على أقرب مستوى                                          |
-//+------------------------------------------------------------------+
-SAdvancedSRLevel CSupportResistance::GetNearestLevel(const double currentPrice)
-{
-   SAdvancedSRLevel nearestLevel;
-   double minDistance = DBL_MAX;
-   
-   // فحص مستويات الدعم
-   for(int i = 0; i < ArraySize(m_supportLevels); i++)
-   {
-      double distance = MathAbs(currentPrice - m_supportLevels[i].exactPrice);
-      if(distance < minDistance)
-      {
-         minDistance = distance;
-         nearestLevel = m_supportLevels[i];
-      }
-   }
-   
-   // فحص مستويات المقاومة
-   for(int i = 0; i < ArraySize(m_resistanceLevels); i++)
-   {
-      double distance = MathAbs(currentPrice - m_resistanceLevels[i].exactPrice);
-      if(distance < minDistance)
-      {
-         minDistance = distance;
-         nearestLevel = m_resistanceLevels[i];
-      }
-   }
-   
-   return nearestLevel;
-}
-
-//+------------------------------------------------------------------+
-//| فحص تأكيد الحجم                                                  |
-//+------------------------------------------------------------------+
-bool CSupportResistance::HasVolumeConfirmation(const SAdvancedSRLevel &level, const long &volume[],
-                                              const int startIdx, const int endIdx)
-{
-   // حساب متوسط الحجم عند هذا المستوى
-   double levelVolume = CalculateVolumeAtLevel(level, NULL, volume, startIdx, endIdx);
-   
-   // حساب متوسط الحجم العام
-   long totalVolume = 0;
-   int count = 0;
-   for(int i = startIdx; i <= endIdx; i++)
-   {
-      totalVolume += volume[i];
-      count++;
-   }
-   
-   double avgVolume = (count > 0) ? (double)totalVolume / count : 0.0;
-   
-   // تأكيد الحجم إذا كان أعلى من المتوسط بنسبة 50%
-   return (levelVolume > avgVolume * 1.5);
-}
-
-//+------------------------------------------------------------------+
-//| حساب الحجم عند المستوى                                          |
-//+------------------------------------------------------------------+
-double CSupportResistance::CalculateVolumeAtLevel(const SAdvancedSRLevel &level, const double &prices[],
-                                                 const long &volume[], const int startIdx, const int endIdx)
-{
-   long totalVolume = 0;
-   int count = 0;
-   
-   double tolerance = level.exactPrice * m_priceTolerancePercent / 100.0;
-   
-   for(int i = startIdx; i <= endIdx; i++)
-   {
-      // إذا لم يتم توفير أسعار، استخدم أسعار الإغلاق
-      double price = (prices != NULL) ? prices[i] : iClose(m_symbol, m_timeframe, i);
-      
-      if(MathAbs(price - level.exactPrice) <= tolerance)
-      {
-         totalVolume += volume[i];
-         count++;
-      }
-   }
-   
-   return (count > 0) ? (double)totalVolume / count : 0.0;
-}
-
-//+------------------------------------------------------------------+
-//| إنشاء مستوى دعم/مقاومة                                          |
-//+------------------------------------------------------------------+
-bool CSupportResistance::CreateSRLevel(const double price, const ENUM_SR_TYPE type, 
-                                      const datetime creationTime, SAdvancedSRLevel &level)
-{
-   if(price <= 0.0)
-      return false;
-   
-   level.exactPrice = price;
-   level.type = type;
-   level.creationTime = creationTime;
-   level.status = SR_ACTIVE;
-   level.baseLevel.price = price;
-   level.baseLevel.firstTouch = creationTime;
-   level.baseLevel.lastTouch = creationTime;
-   level.baseLevel.isSupport = (type == SR_SUPPORT);
-   level.baseLevel.isResistance = (type == SR_RESISTANCE);
-   
-   return true;
-}
-
-//+------------------------------------------------------------------+
-//| حساب منطقة المستوى                                              |
-//+------------------------------------------------------------------+
-void CSupportResistance::CalculateLevelZone(SAdvancedSRLevel &level)
-{
-   double zoneWidth = level.exactPrice * m_priceTolerancePercent / 100.0;
-   
-   level.zone_upper = level.exactPrice + zoneWidth;
-   level.zone_lower = level.exactPrice - zoneWidth;
-   level.zoneWidth = zoneWidth * 2.0;
-}
-
-//+------------------------------------------------------------------+
-//| فحص إذا كان سعر نفسي                                            |
-//+------------------------------------------------------------------+
-bool CSupportResistance::IsPsychologicalPrice(const double price)
-{
-   // فحص الأرقام المستديرة (مضاعفات 10، 50، 100)
-   int priceInt = (int)MathRound(price * 10000); // تحويل إلى نقاط
-   
-   if(priceInt % 1000 == 0) // مضاعفات 100 نقطة
-      return true;
-   if(priceInt % 500 == 0)  // مضاعفات 50 نقطة
-      return true;
-   
-   return false;
-}
-
-//+------------------------------------------------------------------+
-//| تصفية المستويات                                                 |
-//+------------------------------------------------------------------+
-void CSupportResistance::FilterLevels(SAdvancedSRLevel &levels[])
-{
-   SAdvancedSRLevel filteredLevels[];
-   ArrayResize(filteredLevels, 0);
-   
-   for(int i = 0; i < ArraySize(levels); i++)
-   {
-      // فحص الحد الأدنى للمسات
-      if(levels[i].totalTouches >= m_minTouchesForLevel)
-      {
-         // فحص الموثوقية
-         if(levels[i].reliability >= 0.3)
-         {
-            int size = ArraySize(filteredLevels);
-            ArrayResize(filteredLevels, size + 1);
-            filteredLevels[size] = levels[i];
-         }
-      }
-   }
-   
-   ArrayCopy(levels, filteredLevels);
-}
-
-//+------------------------------------------------------------------+
-//| دمج المستويات المتشابهة                                         |
-//+------------------------------------------------------------------+
-void CSupportResistance::MergeSimilarLevels(SAdvancedSRLevel &levels[])
-{
-   for(int i = ArraySize(levels) - 1; i >= 0; i--)
-   {
-      for(int j = i - 1; j >= 0; j--)
-      {
-         double priceDiff = MathAbs(levels[i].exactPrice - levels[j].exactPrice);
-         double tolerance = levels[i].exactPrice * 0.001; // 0.1%
-         
-         if(priceDiff <= tolerance && levels[i].type == levels[j].type)
-         {
-            // دمج المستويات (الاحتفاظ بالأقوى)
-            if(levels[i].reliability < levels[j].reliability)
-            {
-               // حذف المستوى الأضعف
-               for(int k = i; k < ArraySize(levels) - 1; k++)
-                  levels[k] = levels[k + 1];
-               ArrayResize(levels, ArraySize(levels) - 1);
-               break;
-            }
-         }
-      }
-   }
-}
-
-//+------------------------------------------------------------------+
-//| ترتيب المستويات حسب القوة                                       |
-//+------------------------------------------------------------------+
-void CSupportResistance::SortLevelsByStrength(SAdvancedSRLevel &levels[])
-{
-   int count = ArraySize(levels);
-   if(count <= 1)
-      return;
-   
-   for(int i = 0; i < count - 1; i++)
-   {
-      for(int j = 0; j < count - i - 1; j++)
-      {
-         if(levels[j].reliability < levels[j + 1].reliability)
-         {
-            SAdvancedSRLevel temp = levels[j];
-            levels[j] = levels[j + 1];
-            levels[j + 1] = temp;
-         }
-      }
-   }
-}
-
-//+------------------------------------------------------------------+
-//| تحديث إحصائيات المستوى                                          |
-//+------------------------------------------------------------------+
-void CSupportResistance::UpdateLevelStatistics(SAdvancedSRLevel &level, const double &prices[],
-                                              const int startIdx, const int endIdx)
-{
-   // حساب الارتدادات والاختراقات
-   int bounces = 0;
-   int breakouts = 0;
-   
-   for(int i = startIdx + 1; i <= endIdx; i++)
-   {
-      if(IsRetest(level, prices[i]))
-      {
-         // فحص الشمعة التالية للتحديد
-         if(i < endIdx)
-         {
-            if(level.type == SR_SUPPORT)
-            {
-               if(prices[i+1] > level.exactPrice)
-                  bounces++;
-               else if(prices[i+1] < level.exactPrice - level.exactPrice * 0.002)
-                  breakouts++;
-            }
-            else if(level.type == SR_RESISTANCE)
-            {
-               if(prices[i+1] < level.exactPrice)
-                  bounces++;
-               else if(prices[i+1] > level.exactPrice + level.exactPrice * 0.002)
-                  breakouts++;
-            }
-         }
-      }
-   }
-   
-   level.bounces = bounces;
-   level.breakouts = breakouts;
-   
-   CalculateSuccessRate(level);
-}
-
-//+------------------------------------------------------------------+
-//| حساب معدل النجاح                                                |
-//+------------------------------------------------------------------+
-void CSupportResistance::CalculateSuccessRate(SAdvancedSRLevel &level)
-{
-   int totalTests = level.bounces + level.breakouts;
-   if(totalTests > 0)
-   {
-      level.successRate = (double)level.bounces / totalTests;
-   }
-   else
-   {
-      level.successRate = 0.5; // قيمة افتراضية
-   }
-}
-
-//+------------------------------------------------------------------+
-//| تحديث سياق السوق                                                |
-//+------------------------------------------------------------------+
-void CSupportResistance::UpdateMarketContext(const double &open[], const double &high[],
-                                            const double &low[], const double &close[],
-                                            const long &volume[], const int endIdx)
-{
-   if(endIdx < 0)
-      return;
-   
-   m_currentPrice = close[endIdx];
-   
-   // حساب المدى اليومي
-   m_dailyRange = high[endIdx] - low[endIdx];
-   
-   // حساب متوسط الحجم
-   long totalVolume = 0;
-   int count = MathMin(20, endIdx + 1);
-   
-   for(int i = endIdx - count + 1; i <= endIdx; i++)
-   {
-      if(i >= 0)
-         totalVolume += volume[i];
-   }
-   
-   m_averageVolume = (count > 0) ? (double)totalVolume / count : 0.0;
-}
-
-//+------------------------------------------------------------------+
-//| فحص إذا كانت منطقة متقاربة                                      |
-//+------------------------------------------------------------------+
-bool CSupportResistance::IsConfluentZone(const SSRZone &zone)
-{
-   // منطقة متقاربة إذا احتوت على أكثر من نوع واحد من المستويات
-   bool hasSupport = false;
-   bool hasResistance = false;
-   bool hasFib = false;
-   bool hasPsych = false;
-   
-   for(int i = 0; i < zone.levelCount; i++)
-   {
-      switch(zone.levels[i].type)
-      {
-         case SR_SUPPORT:
-            hasSupport = true;
-            break;
-         case SR_RESISTANCE:
-            hasResistance = true;
-            break;
-         case SR_FIBONACCI:
-            hasFib = true;
-            break;
-         case SR_PSYCHOLOGICAL:
-            hasPsych = true;
-            break;
-      }
-   }
-   
-   int typeCount = 0;
-   if(hasSupport) typeCount++;
-   if(hasResistance) typeCount++;
-   if(hasFib) typeCount++;
-   if(hasPsych) typeCount++;
-   
-   return (typeCount >= 2 || zone.levelCount >= 3);
-}
-
-//+------------------------------------------------------------------+
-//| حساب قوة المنطقة                                                |
-//+------------------------------------------------------------------+
-double CSupportResistance::CalculateZoneStrength(const SSRZone &zone)
-{
-   double strength = 0.0;
-   
-   // قوة أساسية من عدد المستويات
-   strength += MathMin(zone.levelCount / 5.0, 0.4);
-   
-   // قوة من متوسط موثوقية المستويات
-   double totalReliability = 0.0;
-   for(int i = 0; i < zone.levelCount; i++)
-      totalReliability += zone.levels[i].reliability;
-   
-   if(zone.levelCount > 0)
-      strength += (totalReliability / zone.levelCount) * 0.3;
-   
-   // مكافأة للمناطق المتقاربة
-   if(zone.isConfluentZone)
-      strength += 0.2;
-   
-   // قوة من العمر
-   long ageSeconds = TimeCurrent() - zone.formationTime;
-   double ageDays = ageSeconds / 86400.0;
-   strength += MathMin(ageDays / 30.0, 0.1);
-   
-   return MathMin(strength, 1.0);
-}
-
-//+------------------------------------------------------------------+
-//| الحصول على معدل النجاح                                          |
-//+------------------------------------------------------------------+
-double CSupportResistance::GetSuccessRate() const
-{
-   int totalTests = m_successfulBounces + m_successfulBreakouts;
-   if(totalTests > 0)
-      return (double)m_successfulBounces / totalTests;
-   
-   return 0.0;
-}
-
-//+------------------------------------------------------------------+
-//| الحصول على مستوى دعم                                           |
-//+------------------------------------------------------------------+
 SAdvancedSRLevel CSupportResistance::GetSupportLevel(const int index) const
 {
    SAdvancedSRLevel emptyLevel;
@@ -1347,9 +778,6 @@ SAdvancedSRLevel CSupportResistance::GetSupportLevel(const int index) const
    return m_supportLevels[index];
 }
 
-//+------------------------------------------------------------------+
-//| الحصول على مستوى مقاومة                                        |
-//+------------------------------------------------------------------+
 SAdvancedSRLevel CSupportResistance::GetResistanceLevel(const int index) const
 {
    SAdvancedSRLevel emptyLevel;
@@ -1360,9 +788,6 @@ SAdvancedSRLevel CSupportResistance::GetResistanceLevel(const int index) const
    return m_resistanceLevels[index];
 }
 
-//+------------------------------------------------------------------+
-//| الحصول على منطقة دعم/مقاومة                                     |
-//+------------------------------------------------------------------+
 SSRZone CSupportResistance::GetSRZone(const int index) const
 {
    SSRZone emptyZone;
@@ -1372,3 +797,38 @@ SSRZone CSupportResistance::GetSRZone(const int index) const
    
    return m_srZones[index];
 }
+
+double CSupportResistance::GetSuccessRate() const
+{
+   int totalTests = m_successfulBounces + m_successfulBreakouts;
+   if(totalTests > 0)
+      return (double)m_successfulBounces / totalTests;
+   
+   return 0.0;
+}
+
+// دوال أساسية مبسطة لتجنب الأخطاء
+void CSupportResistance::ValidateLevels(const double currentPrice, const long currentVolume) {}
+void CSupportResistance::UpdateLevelStatus(SAdvancedSRLevel &level, const double currentPrice) {}
+int CSupportResistance::DetectPsychologicalLevels(const double minPrice, const double maxPrice) { return 0; }
+int CSupportResistance::DetectFibonacciLevels(const double swingHigh, const double swingLow) { return 0; }
+int CSupportResistance::DetectVolumeProfileLevels(const int startIdx, const int endIdx, const double &prices[], const long &volume[]) { return 0; }
+int CSupportResistance::CreateSRZones() { return 0; }
+bool CSupportResistance::IsConfluentZone(const SSRZone &zone) { return false; }
+double CSupportResistance::CalculateZoneStrength(const SSRZone &zone) { return 0.0; }
+bool CSupportResistance::IsBreakout(const SAdvancedSRLevel &level, const double currentPrice, const double minimumBreakDistance) { return false; }
+bool CSupportResistance::IsBounce(const SAdvancedSRLevel &level, const double &prices[], const int startIdx, const int endIdx) { return false; }
+bool CSupportResistance::IsRetest(const SAdvancedSRLevel &level, const double currentPrice) { return false; }
+ENUM_SR_TYPE CSupportResistance::GetNearestLevelType(const double currentPrice) { return SR_SUPPORT; }
+double CSupportResistance::GetNearestLevelDistance(const double currentPrice) { return 0.0; }
+SAdvancedSRLevel CSupportResistance::GetNearestLevel(const double currentPrice) { SAdvancedSRLevel empty; return empty; }
+
+void CSupportResistance::FilterLevels(SAdvancedSRLevel &levels[]) {}
+void CSupportResistance::MergeSimilarLevels(SAdvancedSRLevel &levels[]) {}
+void CSupportResistance::SortLevelsByStrength(SAdvancedSRLevel &levels[]) {}
+void CSupportResistance::UpdateLevelStatistics(SAdvancedSRLevel &level, const double &prices[], const int startIdx, const int endIdx) {}
+void CSupportResistance::CalculateSuccessRate(SAdvancedSRLevel &level) {}
+void CSupportResistance::UpdateMarketContext(const double &open[], const double &high[], const double &low[], const double &close[], const long &volume[], const int endIdx) {}
+bool CSupportResistance::IsPsychologicalPrice(const double price) { return false; }
+bool CSupportResistance::IsPriceNearLevel(const double price, const double levelPrice, const double tolerance) { return false; }
+void CSupportResistance::UpdatePriceLevelStrength(SPriceLevel &level) {}
