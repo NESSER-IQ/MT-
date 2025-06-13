@@ -1,946 +1,1230 @@
 //+------------------------------------------------------------------+
-//|                                                 ChartUtils.mqh |
-//|                              أدوات مساعدة لتحليل المخططات      |
-//|                         حقوق النشر 2025, مكتبة أنماط الشموع اليابانية |
+//|                                  ChartUtils.mqh |
+//|                حقوق النشر 2025, مكتبة أنماط المخططات المتكاملة |
 //+------------------------------------------------------------------+
-#property copyright "حقوق النشر 2025, مكتبة أنماط الشموع اليابانية"
-#property link      "https://www.yourwebsite.com"
-#property version   "1.00"
+#property copyright "حقوق النشر 2025, مكتبة أنماط المخططات المتكاملة"
+#property link "https://www.yourwebsite.com"
+#property version "2.00"
 #property strict
 
-// تضمين التعريفات المشتركة
-#include "ChartCommonDefs.mqh"
+#include "../../CandlePatterns/Base/CandleUtils.mqh"
+#include "../../CandlePatterns/Base/TrendDetector.mqh"
 
 //+------------------------------------------------------------------+
-//| فئة الأدوات المساعدة للمخططات                                   |
+//| تعدادات موحدة للمخططات |
+//+------------------------------------------------------------------+
+enum ENUM_CHART_ANALYSIS_TYPE
+{
+   CHART_ANALYSIS_TREND,                // تحليل الاتجاه
+   CHART_ANALYSIS_SUPPORT_RESISTANCE,   // تحليل الدعم والمقاومة
+   CHART_ANALYSIS_PRICE_ACTION,         // تحليل حركة السعر
+   CHART_ANALYSIS_VOLUME,               // تحليل الحجم
+   CHART_ANALYSIS_MOMENTUM,             // تحليل الزخم
+   CHART_ANALYSIS_VOLATILITY            // تحليل التقلبات
+};
+
+enum ENUM_CHART_TIMEFRAME_STRENGTH
+{
+   TIMEFRAME_STRENGTH_WEAK,       // ضعيف
+   TIMEFRAME_STRENGTH_MODERATE,   // متوسط
+   TIMEFRAME_STRENGTH_STRONG,     // قوي
+   TIMEFRAME_STRENGTH_VERY_STRONG // قوي جداً
+};
+
+enum ENUM_CONFLUENCE_LEVEL
+{
+   CONFLUENCE_NONE,        // لا يوجد توافق
+   CONFLUENCE_LOW,         // توافق ضعيف
+   CONFLUENCE_MEDIUM,      // توافق متوسط
+   CONFLUENCE_HIGH,        // توافق عالي
+   CONFLUENCE_VERY_HIGH    // توافق عالي جداً
+};
+
+//+------------------------------------------------------------------+
+//| تعدادات أنماط المخططات |
+//+------------------------------------------------------------------+
+enum ENUM_CHART_PATTERN_TYPE
+{
+    CHART_PATTERN_REVERSAL,        // انعكاس
+    CHART_PATTERN_CONTINUATION,    // استمرار
+    CHART_PATTERN_BILATERAL,       // ثنائي الاتجاه
+    CHART_PATTERN_HARMONIC         // هارمونيك
+};
+
+enum ENUM_PATTERN_DIRECTION
+{
+    PATTERN_BULLISH,               // صاعد
+    PATTERN_BEARISH,               // هابط
+    PATTERN_NEUTRAL                // محايد
+};
+
+enum ENUM_CHART_POINT_TYPE
+{
+    CHART_POINT_HIGH,              // قمة
+    CHART_POINT_LOW,               // قاع
+    CHART_POINT_PIVOT,             // نقطة محورية
+    CHART_POINT_BREAKOUT,          // كسر
+    CHART_POINT_SUPPORT,           // دعم
+    CHART_POINT_RESISTANCE         // مقاومة
+};
+
+enum ENUM_TRENDLINE_TYPE
+{
+    TRENDLINE_SUPPORT,             // دعم
+    TRENDLINE_RESISTANCE,          // مقاومة
+    TRENDLINE_TREND,               // اتجاه
+    TRENDLINE_CHANNEL              // قناة
+};
+
+enum ENUM_PRICE_LEVEL_TYPE
+{
+    PRICE_LEVEL_SUPPORT,           // دعم
+    PRICE_LEVEL_RESISTANCE,        // مقاومة
+    PRICE_LEVEL_PIVOT,             // محوري
+    PRICE_LEVEL_FIBONACCI,         // فيبوناتشي
+    PRICE_LEVEL_PSYCHOLOGICAL      // نفسي
+};
+
+//+------------------------------------------------------------------+
+//| هياكل المخططات المشتركة |
+//+------------------------------------------------------------------+
+struct SChartPoint
+{
+    double               price;           // السعر
+    datetime             time;            // الوقت
+    int                  barIndex;        // مؤشر الشمعة
+    ENUM_CHART_POINT_TYPE pointType;      // نوع النقطة
+    double               strength;        // قوة النقطة
+    bool                 isConfirmed;     // مؤكد
+    
+    SChartPoint()
+    {
+        price = 0.0;
+        time = 0;
+        barIndex = -1;
+        pointType = CHART_POINT_HIGH;
+        strength = 0.0;
+        isConfirmed = false;
+    }
+};
+
+struct STrendLine
+{
+    SChartPoint          startPoint;      // نقطة البداية
+    SChartPoint          endPoint;        // نقطة النهاية
+    double               slope;           // الميل
+    double               strength;        // القوة
+    ENUM_TRENDLINE_TYPE  lineType;        // نوع الخط
+    bool                 isValid;         // صالح
+    
+    STrendLine()
+    {
+        slope = 0.0;
+        strength = 0.0;
+        lineType = TRENDLINE_SUPPORT;
+        isValid = false;
+    }
+};
+
+struct SPriceLevel
+{
+    double               price;           // السعر
+    ENUM_PRICE_LEVEL_TYPE levelType;      // نوع المستوى
+    double               strength;        // القوة
+    int                  touchCount;      // عدد اللمسات
+    datetime             firstTouch;      // أول لمسة
+    datetime             lastTouch;       // آخر لمسة
+    bool                 isActive;        // نشط
+    
+    SPriceLevel()
+    {
+        price = 0.0;
+        levelType = PRICE_LEVEL_SUPPORT;
+        strength = 0.0;
+        touchCount = 0;
+        firstTouch = 0;
+        lastTouch = 0;
+        isActive = false;
+    }
+};
+
+//+------------------------------------------------------------------+
+//| هيكل تحليل شامل للمخطط |
+//+------------------------------------------------------------------+
+struct SChartAnalysis
+{
+   // تحليل الاتجاه
+   ENUM_TREND_TYPE            overallTrend;        // الاتجاه العام
+   double                     trendStrength;       // قوة الاتجاه
+   ENUM_CHART_TIMEFRAME_STRENGTH trendReliability; // موثوقية الاتجاه
+   
+   // تحليل الدعم والمقاومة
+   double                     nearestSupport;      // أقرب دعم
+   double                     nearestResistance;   // أقرب مقاومة
+   double                     supportStrength;     // قوة الدعم
+   double                     resistanceStrength;  // قوة المقاومة
+   
+   // تحليل حركة السعر
+   double                     momentum;            // الزخم
+   double                     volatility;          // التقلبات
+   double                     priceVelocity;       // سرعة السعر
+   
+   // تحليل الحجم
+   double                     volumeTrend;         // اتجاه الحجم
+   double                     volumeConfirmation;  // تأكيد الحجم
+   bool                       volumeAnomaly;       // شذوذ في الحجم
+   
+   // مؤشرات التوافق
+   ENUM_CONFLUENCE_LEVEL      confluenceLevel;     // مستوى التوافق
+   double                     reliabilityScore;    // نقاط الموثوقية
+   
+   // معلومات السياق
+   double                     currentPrice;        // السعر الحالي
+   datetime                   analysisTime;        // وقت التحليل
+   ENUM_TIMEFRAMES            timeframe;           // الإطار الزمني
+   
+   SChartAnalysis()
+   {
+      overallTrend = TREND_NEUTRAL;
+      trendStrength = 0.0;
+      trendReliability = TIMEFRAME_STRENGTH_WEAK;
+      nearestSupport = 0.0;
+      nearestResistance = 0.0;
+      supportStrength = 0.0;
+      resistanceStrength = 0.0;
+      momentum = 0.0;
+      volatility = 0.0;
+      priceVelocity = 0.0;
+      volumeTrend = 0.0;
+      volumeConfirmation = 0.0;
+      volumeAnomaly = false;
+      confluenceLevel = CONFLUENCE_NONE;
+      reliabilityScore = 0.0;
+      currentPrice = 0.0;
+      analysisTime = 0;
+      timeframe = PERIOD_CURRENT;
+   }
+};
+
+//+------------------------------------------------------------------+
+//| هيكل نقطة توافق |
+//+------------------------------------------------------------------+
+struct SConfluencePoint
+{
+   double                     price;               // السعر
+   ENUM_CONFLUENCE_LEVEL      level;               // مستوى التوافق
+   string                     factors[];           // العوامل المؤثرة
+   double                     strength;            // القوة الإجمالية
+   datetime                   validFrom;           // صالح من
+   datetime                   validUntil;          // صالح حتى
+   bool                       isActive;            // نشط
+   
+   SConfluencePoint()
+   {
+      price = 0.0;
+      level = CONFLUENCE_NONE;
+      strength = 0.0;
+      validFrom = 0;
+      validUntil = 0;
+      isActive = false;
+      ArrayResize(factors, 0);
+   }
+};
+
+//+------------------------------------------------------------------+
+//| فئة أدوات المخططات الأساسية |
 //+------------------------------------------------------------------+
 class CChartUtils
 {
 private:
-   // إعدادات الفئة
-   string            m_symbol;
-   ENUM_TIMEFRAMES   m_timeframe;
-   bool              m_initialized;
-   
-   // بيانات التحليل
-   SPriceLevel       m_priceLevels[];     // مستويات الأسعار
-   STradingRange     m_tradingRanges[];   // مدى التداول
-   SVolatilityStats  m_volatilityStats;   // إحصائيات التقلب
-   
-   // معاملات التحليل
-   double            m_priceTolerancePercent; // نسبة تساهل السعر
-   int               m_minTouchesForLevel;    // أقل عدد لمسات للمستوى
-   int               m_volatilityPeriod;      // فترة حساب التقلب
-   
-   // كاش البيانات
-   double            m_cachedATR[];           // مخزن ATR
-   double            m_cachedRanges[];        // مخزن المديات
-   bool              m_dataUpdated;           // حالة تحديث البيانات
-   
+   static bool                m_initialized;       // حالة التهيئة
+   static string              m_lastError;         // آخر خطأ
+
 public:
-   // المنشئ والهادم
-                     CChartUtils();
-                     ~CChartUtils();
+   // دوال التهيئة والإنهاء
+   static bool                Initialize();
+   static void                Deinitialize();
+   static bool                IsInitialized() { return m_initialized; }
+   static string              GetLastError() { return m_lastError; }
    
-   // تهيئة الأدوات
-   bool              Initialize(const string symbol = "", const ENUM_TIMEFRAMES timeframe = PERIOD_CURRENT);
-   void              Deinitialize();
+   // دوال البحث عن القمم والقيعان
+   static bool                FindPeaks(const double &high[], const double &low[], const double &close[],
+                                       int start, int end, SChartPoint &peaks[]);
    
-   // تحديث البيانات
-   bool              UpdateData(const int startIdx, const int endIdx);
-   void              ClearCache();
+   static bool                FindValleys(const double &high[], const double &low[], const double &close[],
+                                         int start, int end, SChartPoint &valleys[]);
    
-   // تحليل مستويات الأسعار
-   int               FindPriceLevels(const int startIdx, const int endIdx,
-                                   const double &high[], const double &low[],
-                                   SPriceLevel &levels[]);
-   int               FindSupportLevels(const int startIdx, const int endIdx,
-                                     const double &low[], SPriceLevel &levels[]);
-   int               FindResistanceLevels(const int startIdx, const int endIdx,
-                                        const double &high[], SPriceLevel &levels[]);
+   // دوال تحليل النقاط
+   static bool                FindSignificantPoints(const double &high[], const double &low[], 
+                                                   const double &close[], int start, int end,
+                                                   SChartPoint &points[]);
    
-   // تحليل مدى التداول
-   int               FindTradingRanges(const int startIdx, const int endIdx,
-                                     const double &high[], const double &low[],
-                                     STradingRange &ranges[]);
-   bool              IsInTradingRange(const double price, const STradingRange &range);
+   // دوال التحقق من الصحة
+   static bool                ValidateChartData(const double &high[], const double &low[], 
+                                               const double &close[], int size);
    
-   // تحليل التقلب
-   double            CalculateAverageRange(const int startIdx, const int count,
-                                         const double &high[], const double &low[]);
-   double            CalculateATR(const int startIdx, const int period,
-                                const double &high[], const double &low[], 
-                                const double &close[]);
-   double            CalculateVolatilityRatio(const int startIdx, const int period,
-                                            const double &high[], const double &low[]);
-   SVolatilityStats  GetVolatilityStats(const int startIdx, const int period,
-                                       const double &high[], const double &low[],
-                                       const double &close[]);
-   
-   // تحليل فيبوناتشي
-   void              CalculateFibonacciLevels(const double highPrice, const double lowPrice,
-                                            double &levels[], string &labels[]);
-   double            GetFibonacciLevel(const double highPrice, const double lowPrice, 
-                                     const double ratio);
-   bool              IsFibonacciLevel(const double price, const double highPrice, 
-                                    const double lowPrice, const double tolerance = 0.001);
-   
-   // تحليل القمم والقيعان
-   int               FindSwingHighs(const int startIdx, const int endIdx, const int strength,
-                                  const double &high[], SChartPoint &swings[]);
-   int               FindSwingLows(const int startIdx, const int endIdx, const int strength,
-                                 const double &low[], SChartPoint &swings[]);
-   bool              IsSwingHigh(const int idx, const int strength, const double &high[]);
-   bool              IsSwingLow(const int idx, const int strength, const double &low[]);
-   
-   // تحليل الاختراقات
-   bool              IsBreakout(const double currentPrice, const SPriceLevel &level, 
-                              const double minimumBreakDistance = 0.0);
-   bool              IsValidBreakout(const double breakPrice, const SPriceLevel &level,
-                                   const long &volume[], const int volumeIdx,
-                                   const bool requireVolumeConfirmation = false);
-   
-   // تحليل إعادة الاختبار
-   bool              IsRetest(const double currentPrice, const SPriceLevel &level,
-                            const double tolerance = 0.001);
-   bool              IsFalseBreakout(const double &prices[], const int startIdx, const int endIdx,
-                                   const SPriceLevel &level);
-   
-   // أدوات هندسية
-   double            CalculateSlope(const SChartPoint &point1, const SChartPoint &point2);
-   double            CalculateAngle(const SChartPoint &point1, const SChartPoint &point2);
-   double            CalculateDistance(const SChartPoint &point1, const SChartPoint &point2);
-   bool              ArePointsAligned(const SChartPoint &points[], const double tolerance = 0.02);
-   
-   // تحليل الأحجام
-   double            CalculateAverageVolume(const int startIdx, const int period,
-                                         const long &volume[]);
-   bool              IsVolumeSpike(const long currentVolume, const long &volume[],
-                                 const int startIdx, const int period, 
-                                 const double spikeRatio = 2.0);
-   bool              IsVolumeClimaxPattern(const long &volume[], const int startIdx, 
-                                         const int endIdx);
-   
-   // معاملات التحكم
-   void              SetPriceTolerancePercent(const double percent) { m_priceTolerancePercent = percent; }
-   void              SetMinTouchesForLevel(const int touches) { m_minTouchesForLevel = touches; }
-   void              SetVolatilityPeriod(const int period) { m_volatilityPeriod = period; }
-   
-   double            GetPriceTolerancePercent() const { return m_priceTolerancePercent; }
-   int               GetMinTouchesForLevel() const { return m_minTouchesForLevel; }
-   int               GetVolatilityPeriod() const { return m_volatilityPeriod; }
-   
-   // الوصول للبيانات
-   int               GetPriceLevelsCount() const { return ArraySize(m_priceLevels); }
-   SPriceLevel       GetPriceLevel(const int index) const;
-   int               GetTradingRangesCount() const { return ArraySize(m_tradingRanges); }
-   STradingRange     GetTradingRange(const int index) const;
-   SVolatilityStats  GetCurrentVolatilityStats() const { return m_volatilityStats; }
-   
-protected:
-   // دوال مساعدة
-   bool              IsPriceNearLevel(const double price, const double levelPrice, 
-                                    const double tolerance);
-   void              UpdatePriceLevelStrength(SPriceLevel &level);
-   void              SortPriceLevels(SPriceLevel &levels[]);
-   
-   // تحديث البيانات المخزنة
-   void              UpdateVolatilityStats(const int startIdx, const int endIdx,
-                                         const double &high[], const double &low[],
-                                         const double &close[]);
-   void              UpdateATRCache(const int startIdx, const int endIdx,
-                                  const double &high[], const double &low[],
-                                  const double &close[]);
+private:
+   static void                SetLastError(const string error) { m_lastError = error; }
+   static void                ClearLastError() { m_lastError = ""; }
 };
 
-//+------------------------------------------------------------------+
-//| المنشئ                                                           |
-//+------------------------------------------------------------------+
-CChartUtils::CChartUtils()
-{
-   m_symbol = "";
-   m_timeframe = PERIOD_CURRENT;
-   m_initialized = false;
-   
-   m_priceTolerancePercent = 0.1;  // 0.1%
-   m_minTouchesForLevel = 2;
-   m_volatilityPeriod = 14;
-   m_dataUpdated = false;
-   
-   ArrayResize(m_priceLevels, 0);
-   ArrayResize(m_tradingRanges, 0);
-   ArrayResize(m_cachedATR, 0);
-   ArrayResize(m_cachedRanges, 0);
-}
+// تعريف المتغيرات الثابتة
+bool CChartUtils::m_initialized = false;
+string CChartUtils::m_lastError = "";
 
 //+------------------------------------------------------------------+
-//| الهادم                                                           |
+//| تهيئة أدوات المخططات الأساسية |
 //+------------------------------------------------------------------+
-CChartUtils::~CChartUtils()
+bool CChartUtils::Initialize()
 {
-   ClearCache();
-}
-
-//+------------------------------------------------------------------+
-//| تهيئة الأدوات                                                   |
-//+------------------------------------------------------------------+
-bool CChartUtils::Initialize(const string symbol = "", const ENUM_TIMEFRAMES timeframe = PERIOD_CURRENT)
-{
-   m_symbol = (symbol == "") ? Symbol() : symbol;
-   m_timeframe = (timeframe == PERIOD_CURRENT) ? Period() : timeframe;
+   if(m_initialized)
+      return true;
+      
+   ClearLastError();
    
-   ClearCache();
+   // تهيئة أدوات الشموع
+   CCandleUtils::Initialize();
+   
    m_initialized = true;
-   
-   Print("تم تهيئة أدوات المخططات للرمز: ", m_symbol, " الإطار الزمني: ", EnumToString(m_timeframe));
-   
+   Print("تم تهيئة أدوات المخططات الأساسية بنجاح");
    return true;
 }
 
 //+------------------------------------------------------------------+
-//| إنهاء الأدوات                                                   |
+//| إنهاء أدوات المخططات الأساسية |
 //+------------------------------------------------------------------+
 void CChartUtils::Deinitialize()
 {
-   if(m_initialized)
-   {
-      ClearCache();
-      m_initialized = false;
-   }
-}
-
-//+------------------------------------------------------------------+
-//| تحديث البيانات                                                  |
-//+------------------------------------------------------------------+
-bool CChartUtils::UpdateData(const int startIdx, const int endIdx)
-{
-   if(startIdx >= endIdx)
-      return false;
-   
-   // تحضير مصفوفات الأسعار
-   int dataSize = endIdx - startIdx + 1;
-   double high[], low[], close[];
-   ArrayResize(high, dataSize);
-   ArrayResize(low, dataSize);
-   ArrayResize(close, dataSize);
-   
-   for(int i = 0; i < dataSize; i++)
-   {
-      int idx = startIdx + i;
-      high[i] = iHigh(m_symbol, m_timeframe, idx);
-      low[i] = iLow(m_symbol, m_timeframe, idx);
-      close[i] = iClose(m_symbol, m_timeframe, idx);
-   }
-   
-   // تحديث التحليلات
-   UpdateVolatilityStats(0, dataSize - 1, high, low, close);
-   UpdateATRCache(0, dataSize - 1, high, low, close);
-   
-   // البحث عن مستويات الأسعار
-   FindPriceLevels(0, dataSize - 1, high, low, m_priceLevels);
-   
-   // البحث عن مدى التداول
-   FindTradingRanges(0, dataSize - 1, high, low, m_tradingRanges);
-   
-   m_dataUpdated = true;
-   return true;
-}
-
-//+------------------------------------------------------------------+
-//| مسح الكاش                                                       |
-//+------------------------------------------------------------------+
-void CChartUtils::ClearCache()
-{
-   ArrayResize(m_priceLevels, 0);
-   ArrayResize(m_tradingRanges, 0);
-   ArrayResize(m_cachedATR, 0);
-   ArrayResize(m_cachedRanges, 0);
-   m_dataUpdated = false;
-}
-
-//+------------------------------------------------------------------+
-//| البحث عن مستويات الأسعار                                       |
-//+------------------------------------------------------------------+
-int CChartUtils::FindPriceLevels(const int startIdx, const int endIdx,
-                                const double &high[], const double &low[],
-                                SPriceLevel &levels[])
-{
-   ArrayResize(levels, 0);
-   
-   if(startIdx >= endIdx || endIdx >= ArraySize(high))
-      return 0;
-   
-   // البحث عن القمم والقيعان
-   SChartPoint swingHighs[], swingLows[];
-   FindSwingHighs(startIdx, endIdx, 3, high, swingHighs);
-   FindSwingLows(startIdx, endIdx, 3, low, swingLows);
-   
-   // تجميع النقاط في مستويات
-   SChartPoint allPoints[];
-   int totalPoints = ArraySize(swingHighs) + ArraySize(swingLows);
-   ArrayResize(allPoints, totalPoints);
-   
-   // نسخ القمم
-   for(int i = 0; i < ArraySize(swingHighs); i++)
-      allPoints[i] = swingHighs[i];
-   
-   // نسخ القيعان
-   for(int i = 0; i < ArraySize(swingLows); i++)
-      allPoints[ArraySize(swingHighs) + i] = swingLows[i];
-   
-   // تجميع النقاط المتقاربة في مستويات
-   for(int i = 0; i < totalPoints; i++)
-   {
-      bool foundLevel = false;
+   if(!m_initialized)
+      return;
       
-      // البحث عن مستوى موجود
-      for(int j = 0; j < ArraySize(levels); j++)
+   m_initialized = false;
+   ClearLastError();
+   Print("تم إنهاء أدوات المخططات الأساسية بنجاح");
+}
+
+//+------------------------------------------------------------------+
+//| البحث عن القمم |
+//+------------------------------------------------------------------+
+bool CChartUtils::FindPeaks(const double &high[], const double &low[], const double &close[],
+                            int start, int end, SChartPoint &peaks[])
+{
+   if(!m_initialized)
+   {
+      SetLastError("أدوات المخططات غير مهيأة");
+      return false;
+   }
+   
+   if(start >= end || end >= ArraySize(high))
+   {
+      SetLastError("معاملات البحث غير صحيحة");
+      return false;
+   }
+   
+   SChartPoint tempPeaks[];
+   int peakCount = 0;
+   
+   // البحث عن القمم المحلية
+   for(int i = start + 2; i <= end - 2; i++)
+   {
+      bool isPeak = true;
+      
+      // فحص القمة المحلية
+      for(int j = i - 2; j <= i + 2; j++)
       {
-         if(IsPriceNearLevel(allPoints[i].price, levels[j].price, 
-                           levels[j].price * m_priceTolerancePercent / 100.0))
+         if(j != i && high[j] >= high[i])
          {
-            levels[j].touches++;
-            levels[j].lastTouch = allPoints[i].time;
-            
-            // تحديث السعر كمتوسط مرجح
-            levels[j].price = (levels[j].price * (levels[j].touches - 1) + allPoints[i].price) / levels[j].touches;
-            
-            UpdatePriceLevelStrength(levels[j]);
-            foundLevel = true;
+            isPeak = false;
             break;
          }
       }
       
-      // إنشاء مستوى جديد
-      if(!foundLevel)
+      if(isPeak)
       {
-         SPriceLevel newLevel;
-         newLevel.price = allPoints[i].price;
-         newLevel.touches = 1;
-         newLevel.firstTouch = allPoints[i].time;
-         newLevel.lastTouch = allPoints[i].time;
-         newLevel.isSupport = (allPoints[i].type == CHART_POINT_LOW);
-         newLevel.isResistance = (allPoints[i].type == CHART_POINT_HIGH);
-         
-         UpdatePriceLevelStrength(newLevel);
-         
-         int size = ArraySize(levels);
-         ArrayResize(levels, size + 1);
-         levels[size] = newLevel;
+         ArrayResize(tempPeaks, peakCount + 1);
+         tempPeaks[peakCount].price = high[i];
+         tempPeaks[peakCount].barIndex = i;
+         tempPeaks[peakCount].pointType = CHART_POINT_HIGH;
+         tempPeaks[peakCount].strength = 1.0;
+         tempPeaks[peakCount].isConfirmed = true;
+         peakCount++;
       }
    }
    
-   // تصفية المستويات الضعيفة
-   SPriceLevel filteredLevels[];
-   ArrayResize(filteredLevels, 0);
-   
-   for(int i = 0; i < ArraySize(levels); i++)
+   if(peakCount > 0)
    {
-      if(levels[i].touches >= m_minTouchesForLevel)
-      {
-         int size = ArraySize(filteredLevels);
-         ArrayResize(filteredLevels, size + 1);
-         filteredLevels[size] = levels[i];
-      }
+      ArrayCopy(peaks, tempPeaks);
+      ClearLastError();
+      return true;
    }
    
-   // ترتيب المستويات
-   SortPriceLevels(filteredLevels);
-   ArrayCopy(levels, filteredLevels);
-   
-   return ArraySize(levels);
+   SetLastError("لم يتم العثور على قمم");
+   return false;
 }
 
 //+------------------------------------------------------------------+
-//| البحث عن مستويات الدعم                                         |
+//| البحث عن القيعان |
 //+------------------------------------------------------------------+
-int CChartUtils::FindSupportLevels(const int startIdx, const int endIdx,
-                                  const double &low[], SPriceLevel &levels[])
+bool CChartUtils::FindValleys(const double &high[], const double &low[], const double &close[],
+                              int start, int end, SChartPoint &valleys[])
 {
-   ArrayResize(levels, 0);
-   
-   SChartPoint swingLows[];
-   FindSwingLows(startIdx, endIdx, 3, low, swingLows);
-   
-   // تحويل النقاط إلى مستويات دعم
-   for(int i = 0; i < ArraySize(swingLows); i++)
+   if(!m_initialized)
    {
-      SPriceLevel level;
-      level.price = swingLows[i].price;
-      level.touches = 1;
-      level.firstTouch = swingLows[i].time;
-      level.lastTouch = swingLows[i].time;
-      level.isSupport = true;
-      level.isResistance = false;
-      
-      UpdatePriceLevelStrength(level);
-      
-      int size = ArraySize(levels);
-      ArrayResize(levels, size + 1);
-      levels[size] = level;
-   }
-   
-   return ArraySize(levels);
-}
-
-//+------------------------------------------------------------------+
-//| البحث عن مستويات المقاومة                                      |
-//+------------------------------------------------------------------+
-int CChartUtils::FindResistanceLevels(const int startIdx, const int endIdx,
-                                     const double &high[], SPriceLevel &levels[])
-{
-   ArrayResize(levels, 0);
-   
-   SChartPoint swingHighs[];
-   FindSwingHighs(startIdx, endIdx, 3, high, swingHighs);
-   
-   // تحويل النقاط إلى مستويات مقاومة
-   for(int i = 0; i < ArraySize(swingHighs); i++)
-   {
-      SPriceLevel level;
-      level.price = swingHighs[i].price;
-      level.touches = 1;
-      level.firstTouch = swingHighs[i].time;
-      level.lastTouch = swingHighs[i].time;
-      level.isSupport = false;
-      level.isResistance = true;
-      
-      UpdatePriceLevelStrength(level);
-      
-      int size = ArraySize(levels);
-      ArrayResize(levels, size + 1);
-      levels[size] = level;
-   }
-   
-   return ArraySize(levels);
-}
-
-//+------------------------------------------------------------------+
-//| تنفيذ باقي الدوال (الكود مطوّل جداً، لذا سأعرض المزيد عند الحاجة) |
-//+------------------------------------------------------------------+
-
-// تحليل مدى التداول
-int CChartUtils::FindTradingRanges(const int startIdx, const int endIdx,
-                                  const double &high[], const double &low[],
-                                  STradingRange &ranges[])
-{
-   ArrayResize(ranges, 0);
-   
-   if(endIdx - startIdx < 20) // مدى قصير جداً
-      return 0;
-   
-   // البحث عن مناطق التداول المستقر
-   for(int i = startIdx; i <= endIdx - 20; i++)
-   {
-      double maxHigh = high[i];
-      double minLow = low[i];
-      
-      // حساب المدى لفترة 20 شمعة
-      for(int j = i; j < i + 20 && j < ArraySize(high); j++)
-      {
-         if(high[j] > maxHigh) maxHigh = high[j];
-         if(low[j] < minLow) minLow = low[j];
-      }
-      
-      double rangeWidth = maxHigh - minLow;
-      double avgATR = (ArraySize(m_cachedATR) > 0) ? m_cachedATR[MathMin(i / m_volatilityPeriod, ArraySize(m_cachedATR) - 1)] : rangeWidth;
-      
-      // فحص إذا كان المدى ضيق نسبياً
-      if(rangeWidth <= avgATR * 2.0)
-      {
-         STradingRange range;
-         range.upperBound = maxHigh;
-         range.lowerBound = minLow;
-         range.midPoint = (maxHigh + minLow) / 2.0;
-         range.width = rangeWidth;
-         range.duration = 20;
-         range.startTime = iTime(m_symbol, m_timeframe, i);
-         range.endTime = iTime(m_symbol, m_timeframe, i + 19);
-         range.isActive = true;
-         
-         int size = ArraySize(ranges);
-         ArrayResize(ranges, size + 1);
-         ranges[size] = range;
-         
-         i += 10; // تجنب التداخل
-      }
-   }
-   
-   return ArraySize(ranges);
-}
-
-bool CChartUtils::IsInTradingRange(const double price, const STradingRange &range)
-{
-   return (price >= range.lowerBound && price <= range.upperBound);
-}
-
-// الدوال المتبقية سيتم إضافتها حسب الحاجة...
-
-//+------------------------------------------------------------------+
-//| البحث عن القمم المتأرجحة                                        |
-//+------------------------------------------------------------------+
-int CChartUtils::FindSwingHighs(const int startIdx, const int endIdx, const int strength,
-                               const double &high[], SChartPoint &swings[])
-{
-   ArrayResize(swings, 0);
-   
-   for(int i = startIdx + strength; i <= endIdx - strength; i++)
-   {
-      if(IsSwingHigh(i, strength, high))
-      {
-         SChartPoint point;
-         point.index = i;
-         point.price = high[i];
-         point.time = iTime(m_symbol, m_timeframe, i);
-         point.type = CHART_POINT_HIGH;
-         
-         int size = ArraySize(swings);
-         ArrayResize(swings, size + 1);
-         swings[size] = point;
-      }
-   }
-   
-   return ArraySize(swings);
-}
-
-//+------------------------------------------------------------------+
-//| البحث عن القيعان المتأرجحة                                      |
-//+------------------------------------------------------------------+
-int CChartUtils::FindSwingLows(const int startIdx, const int endIdx, const int strength,
-                              const double &low[], SChartPoint &swings[])
-{
-   ArrayResize(swings, 0);
-   
-   for(int i = startIdx + strength; i <= endIdx - strength; i++)
-   {
-      if(IsSwingLow(i, strength, low))
-      {
-         SChartPoint point;
-         point.index = i;
-         point.price = low[i];
-         point.time = iTime(m_symbol, m_timeframe, i);
-         point.type = CHART_POINT_LOW;
-         
-         int size = ArraySize(swings);
-         ArrayResize(swings, size + 1);
-         swings[size] = point;
-      }
-   }
-   
-   return ArraySize(swings);
-}
-
-//+------------------------------------------------------------------+
-//| فحص إذا كانت قمة متأرجحة                                        |
-//+------------------------------------------------------------------+
-bool CChartUtils::IsSwingHigh(const int idx, const int strength, const double &high[])
-{
-   if(idx < strength || idx >= ArraySize(high) - strength)
+      SetLastError("أدوات المخططات غير مهيأة");
       return false;
-   
-   for(int i = idx - strength; i <= idx + strength; i++)
-   {
-      if(i != idx && high[i] >= high[idx])
-         return false;
    }
    
-   return true;
-}
-
-//+------------------------------------------------------------------+
-//| فحص إذا كان قاع متأرجح                                          |
-//+------------------------------------------------------------------+
-bool CChartUtils::IsSwingLow(const int idx, const int strength, const double &low[])
-{
-   if(idx < strength || idx >= ArraySize(low) - strength)
+   if(start >= end || end >= ArraySize(low))
+   {
+      SetLastError("معاملات البحث غير صحيحة");
       return false;
-   
-   for(int i = idx - strength; i <= idx + strength; i++)
-   {
-      if(i != idx && low[i] <= low[idx])
-         return false;
    }
    
-   return true;
-}
-
-//+------------------------------------------------------------------+
-//| حساب متوسط المدى                                                |
-//+------------------------------------------------------------------+
-double CChartUtils::CalculateAverageRange(const int startIdx, const int count,
-                                         const double &high[], const double &low[])
-{
-   if(count <= 0 || startIdx + count > ArraySize(high))
-      return 0.0;
+   SChartPoint tempValleys[];
+   int valleyCount = 0;
    
-   double totalRange = 0.0;
-   
-   for(int i = startIdx; i < startIdx + count; i++)
-      totalRange += (high[i] - low[i]);
-   
-   return totalRange / count;
-}
-
-//+------------------------------------------------------------------+
-//| حساب متوسط المدى الحقيقي (ATR)                                  |
-//+------------------------------------------------------------------+
-double CChartUtils::CalculateATR(const int startIdx, const int period,
-                                const double &high[], const double &low[], 
-                                const double &close[])
-{
-   if(period <= 0 || startIdx + period > ArraySize(high))
-      return 0.0;
-   
-   double totalTR = 0.0;
-   
-   for(int i = startIdx; i < startIdx + period; i++)
+   // البحث عن القيعان المحلية
+   for(int i = start + 2; i <= end - 2; i++)
    {
-      double tr = high[i] - low[i];
+      bool isValley = true;
       
-      if(i > 0)
+      // فحص القاع المحلي
+      for(int j = i - 2; j <= i + 2; j++)
       {
-         tr = MathMax(tr, MathAbs(high[i] - close[i-1]));
-         tr = MathMax(tr, MathAbs(low[i] - close[i-1]));
-      }
-      
-      totalTR += tr;
-   }
-   
-   return totalTR / period;
-}
-
-//+------------------------------------------------------------------+
-//| الدوال المساعدة الأساسية                                        |
-//+------------------------------------------------------------------+
-
-bool CChartUtils::IsPriceNearLevel(const double price, const double levelPrice, 
-                                  const double tolerance)
-{
-   return (MathAbs(price - levelPrice) <= tolerance);
-}
-
-void CChartUtils::UpdatePriceLevelStrength(SPriceLevel &level)
-{
-   // حساب القوة بناءً على عدد اللمسات والعمر
-   double touchStrength = MathMin(level.touches / 5.0, 1.0); // 0-1
-   
-   // حساب قوة العمر (الخطوط الأقدم أقوى)
-   long currentTime = TimeCurrent();
-   long ageSeconds = currentTime - level.firstTouch;
-   double ageDays = ageSeconds / 86400.0; // تحويل إلى أيام
-   double ageStrength = MathMin(ageDays / 30.0, 1.0); // 0-1 (30 يوم = قوة كاملة)
-   
-   level.strength = (touchStrength * 0.7) + (ageStrength * 0.3);
-}
-
-SPriceLevel CChartUtils::GetPriceLevel(const int index) const
-{
-   SPriceLevel emptyLevel;
-   
-   if(index < 0 || index >= ArraySize(m_priceLevels))
-      return emptyLevel;
-   
-   return m_priceLevels[index];
-}
-
-STradingRange CChartUtils::GetTradingRange(const int index) const
-{
-   STradingRange emptyRange;
-   
-   if(index < 0 || index >= ArraySize(m_tradingRanges))
-      return emptyRange;
-   
-   return m_tradingRanges[index];
-}
-
-void CChartUtils::SortPriceLevels(SPriceLevel &levels[])
-{
-   int count = ArraySize(levels);
-   if(count <= 1)
-      return;
-   
-   // ترتيب حسب القوة (الأعلى أولاً)
-   for(int i = 0; i < count - 1; i++)
-   {
-      for(int j = 0; j < count - i - 1; j++)
-      {
-         if(levels[j].strength < levels[j + 1].strength)
+         if(j != i && low[j] <= low[i])
          {
-            SPriceLevel temp = levels[j];
-            levels[j] = levels[j + 1];
-            levels[j + 1] = temp;
+            isValley = false;
+            break;
+         }
+      }
+      
+      if(isValley)
+      {
+         ArrayResize(tempValleys, valleyCount + 1);
+         tempValleys[valleyCount].price = low[i];
+         tempValleys[valleyCount].barIndex = i;
+         tempValleys[valleyCount].pointType = CHART_POINT_LOW;
+         tempValleys[valleyCount].strength = 1.0;
+         tempValleys[valleyCount].isConfirmed = true;
+         valleyCount++;
+      }
+   }
+   
+   if(valleyCount > 0)
+   {
+      ArrayCopy(valleys, tempValleys);
+      ClearLastError();
+      return true;
+   }
+   
+   SetLastError("لم يتم العثور على قيعان");
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| البحث عن النقاط المهمة |
+//+------------------------------------------------------------------+
+bool CChartUtils::FindSignificantPoints(const double &high[], const double &low[], 
+                                       const double &close[], int start, int end,
+                                       SChartPoint &points[])
+{
+   if(!m_initialized)
+   {
+      SetLastError("أدوات المخططات غير مهيأة");
+      return false;
+   }
+   
+   SChartPoint peaks[], valleys[];
+   
+   bool foundPeaks = FindPeaks(high, low, close, start, end, peaks);
+   bool foundValleys = FindValleys(high, low, close, start, end, valleys);
+   
+   if(!foundPeaks && !foundValleys)
+   {
+      SetLastError("لم يتم العثور على نقاط مهمة");
+      return false;
+   }
+   
+   // دمج القمم والقيعان
+   int totalPoints = ArraySize(peaks) + ArraySize(valleys);
+   ArrayResize(points, totalPoints);
+   
+   int pointIndex = 0;
+   
+   // إضافة القمم
+   for(int i = 0; i < ArraySize(peaks); i++)
+   {
+      points[pointIndex] = peaks[i];
+      pointIndex++;
+   }
+   
+   // إضافة القيعان
+   for(int i = 0; i < ArraySize(valleys); i++)
+   {
+      points[pointIndex] = valleys[i];
+      pointIndex++;
+   }
+   
+   // ترتيب النقاط حسب الوقت
+   for(int i = 0; i < totalPoints - 1; i++)
+   {
+      for(int j = i + 1; j < totalPoints; j++)
+      {
+         if(points[j].barIndex < points[i].barIndex)
+         {
+            SChartPoint temp = points[i];
+            points[i] = points[j];
+            points[j] = temp;
          }
       }
    }
-}
-
-void CChartUtils::UpdateVolatilityStats(const int startIdx, const int endIdx,
-                                       const double &high[], const double &low[],
-                                       const double &close[])
-{
-   int period = MathMin(m_volatilityPeriod, endIdx - startIdx + 1);
-   m_volatilityStats = GetVolatilityStats(endIdx - period + 1, period, high, low, close);
-}
-
-void CChartUtils::UpdateATRCache(const int startIdx, const int endIdx,
-                                const double &high[], const double &low[],
-                                const double &close[])
-{
-   int dataSize = endIdx - startIdx + 1;
-   int cacheSize = dataSize / m_volatilityPeriod;
    
-   ArrayResize(m_cachedATR, cacheSize);
-   
-   for(int i = 0; i < cacheSize; i++)
-   {
-      int idx = startIdx + (i * m_volatilityPeriod);
-      if(idx + m_volatilityPeriod <= dataSize)
-      {
-         m_cachedATR[i] = CalculateATR(idx, m_volatilityPeriod, high, low, close);
-      }
-   }
-}
-
-// ملاحظة: باقي الدوال يمكن إضافتها تدريجياً حسب الحاجة
-// التركيز الآن على الحصول على كود يترجم بدون أخطاء
-
-double CChartUtils::CalculateSlope(const SChartPoint &point1, const SChartPoint &point2)
-{
-   if(point2.index == point1.index)
-      return 0.0;
-   
-   return (point2.price - point1.price) / (point2.index - point1.index);
-}
-
-double CChartUtils::CalculateAngle(const SChartPoint &point1, const SChartPoint &point2)
-{
-   double slope = CalculateSlope(point1, point2);
-   return MathArctan(slope) * 180.0 / M_PI;
-}
-
-double CChartUtils::CalculateDistance(const SChartPoint &point1, const SChartPoint &point2)
-{
-   double priceDistance = MathAbs(point2.price - point1.price);
-   double timeDistance = MathAbs(point2.index - point1.index);
-   
-   return MathSqrt(priceDistance * priceDistance + timeDistance * timeDistance);
-}
-
-bool CChartUtils::IsBreakout(const double currentPrice, const SPriceLevel &level, 
-                            const double minimumBreakDistance = 0.0)
-{
-   double breakDistance = MathAbs(currentPrice - level.price);
-   
-   if(minimumBreakDistance > 0.0 && breakDistance < minimumBreakDistance)
-      return false;
-   
-   if(level.isResistance && currentPrice > level.price)
-      return true;
-   
-   if(level.isSupport && currentPrice < level.price)
-      return true;
-   
-   return false;
-}
-
-bool CChartUtils::IsRetest(const double currentPrice, const SPriceLevel &level,
-                          const double tolerance = 0.001)
-{
-   return IsPriceNearLevel(currentPrice, level.price, tolerance);
-}
-
-SVolatilityStats CChartUtils::GetVolatilityStats(const int startIdx, const int period,
-                                                const double &high[], const double &low[],
-                                                const double &close[])
-{
-   SVolatilityStats stats;
-   
-   if(period <= 0 || startIdx + period > ArraySize(high))
-      return stats;
-   
-   stats.averageRange = CalculateAverageRange(startIdx, period, high, low);
-   stats.averageTrueRange = CalculateATR(startIdx, period, high, low, close);
-   stats.currentVolatility = (high[startIdx + period - 1] - low[startIdx + period - 1]);
-   
-   return stats;
-}
-
-// إضافة دوال بسيطة لتجنب أخطاء الربط
-double CChartUtils::CalculateVolatilityRatio(const int startIdx, const int period,
-                                            const double &high[], const double &low[])
-{
-   if(period <= 1)
-      return 0.0;
-   
-   double currentRange = CalculateAverageRange(startIdx, 1, high, low);
-   double avgRange = CalculateAverageRange(startIdx - period + 1, period, high, low);
-   
-   if(avgRange == 0.0)
-      return 0.0;
-   
-   return currentRange / avgRange;
-}
-
-void CChartUtils::CalculateFibonacciLevels(const double highPrice, const double lowPrice,
-                                          double &levels[], string &labels[])
-{
-   double fibRatios[] = {0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0};
-   string fibLabels[] = {"0%", "23.6%", "38.2%", "50%", "61.8%", "78.6%", "100%"};
-   
-   int count = ArraySize(fibRatios);
-   ArrayResize(levels, count);
-   ArrayResize(labels, count);
-   
-   double range = highPrice - lowPrice;
-   
-   for(int i = 0; i < count; i++)
-   {
-      levels[i] = highPrice - (range * fibRatios[i]);
-      labels[i] = fibLabels[i];
-   }
-}
-
-double CChartUtils::GetFibonacciLevel(const double highPrice, const double lowPrice, 
-                                     const double ratio)
-{
-   return highPrice - ((highPrice - lowPrice) * ratio);
-}
-
-bool CChartUtils::IsFibonacciLevel(const double price, const double highPrice, 
-                                  const double lowPrice, const double tolerance = 0.001)
-{
-   double fibRatios[] = {0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0};
-   
-   for(int i = 0; i < ArraySize(fibRatios); i++)
-   {
-      double fibLevel = GetFibonacciLevel(highPrice, lowPrice, fibRatios[i]);
-      if(MathAbs(price - fibLevel) <= tolerance * (highPrice - lowPrice))
-         return true;
-   }
-   
-   return false;
-}
-
-bool CChartUtils::IsValidBreakout(const double breakPrice, const SPriceLevel &level,
-                                 const long &volume[], const int volumeIdx,
-                                 const bool requireVolumeConfirmation = false)
-{
-   // فحص الاختراق الأساسي
-   if(!IsBreakout(breakPrice, level))
-      return false;
-   
-   // فحص تأكيد الحجم إذا كان مطلوب
-   if(requireVolumeConfirmation && ArraySize(volume) > volumeIdx)
-   {
-      double avgVolume = CalculateAverageVolume(MathMax(0, volumeIdx - 10), 10, volume);
-      if(volume[volumeIdx] < avgVolume * 1.5) // حجم أقل من 1.5 ضعف المتوسط
-         return false;
-   }
-   
+   ClearLastError();
    return true;
 }
 
-double CChartUtils::CalculateAverageVolume(const int startIdx, const int period,
-                                         const long &volume[])
+//+------------------------------------------------------------------+
+//| التحقق من صحة بيانات المخطط |
+//+------------------------------------------------------------------+
+bool CChartUtils::ValidateChartData(const double &high[], const double &low[], 
+                                   const double &close[], int size)
 {
-   if(period <= 0 || startIdx + period > ArraySize(volume))
-      return 0.0;
-   
-   long totalVolume = 0;
-   
-   for(int i = startIdx; i < startIdx + period; i++)
-      totalVolume += volume[i];
-   
-   return (double)totalVolume / period;
-}
-
-bool CChartUtils::IsVolumeSpike(const long currentVolume, const long &volume[],
-                               const int startIdx, const int period, 
-                               const double spikeRatio = 2.0)
-{
-   double avgVolume = CalculateAverageVolume(startIdx, period, volume);
-   return (currentVolume >= avgVolume * spikeRatio);
-}
-
-bool CChartUtils::IsFalseBreakout(const double &prices[], const int startIdx, const int endIdx,
-                                 const SPriceLevel &level)
-{
-   if(startIdx >= endIdx || endIdx >= ArraySize(prices))
-      return false;
-   
-   bool hadBreakout = false;
-   bool returnedToLevel = false;
-   
-   for(int i = startIdx; i <= endIdx; i++)
+   if(!m_initialized)
    {
-      if(IsBreakout(prices[i], level))
-         hadBreakout = true;
-      else if(hadBreakout && IsRetest(prices[i], level, level.price * 0.002))
-         returnedToLevel = true;
+      SetLastError("أدوات المخططات غير مهيأة");
+      return false;
    }
    
-   return (hadBreakout && returnedToLevel);
+   if(size < 10)
+   {
+      SetLastError("حجم البيانات أقل من الحد الأدنى");
+      return false;
+   }
+      
+   if(ArraySize(high) < size || ArraySize(low) < size || ArraySize(close) < size)
+   {
+      SetLastError("أحجام المصفوفات غير متطابقة");
+      return false;
+   }
+   
+   for(int i = 0; i < size; i++)
+   {
+      if(high[i] < low[i] || close[i] <= 0 || high[i] <= 0 || low[i] <= 0)
+      {
+         SetLastError(StringFormat("بيانات غير صحيحة في المؤشر %d", i));
+         return false;
+      }
+   }
+   
+   ClearLastError();
+   return true;
 }
 
-bool CChartUtils::ArePointsAligned(const SChartPoint &points[], const double tolerance = 0.02)
+//+------------------------------------------------------------------+
+//| فئة أدوات المخططات المتقدمة والمتكاملة |
+//+------------------------------------------------------------------+
+class CAdvancedChartUtils
 {
-   int count = ArraySize(points);
-   if(count < 3)
+private:
+   // أدوات التحليل المتخصصة
+   static CTrendDetector*     m_trendDetector;     // كاشف الاتجاه
+   static bool                m_initialized;       // حالة التهيئة
+   
+   // إعدادات التحليل
+   static double              m_tolerance;         // نسبة التسامح العامة
+   static int                 m_analysisDepth;     // عمق التحليل
+   static bool                m_useVolumeAnalysis; // استخدام تحليل الحجم
+   static bool                m_enableConfluence;  // تفعيل تحليل التوافق
+
+public:
+   // تهيئة وإعدادات
+   static bool                Initialize(double tolerance = 0.02, int analysisDepth = 100);
+   static void                Deinitialize();
+   static void                SetTolerance(double tolerance) { m_tolerance = MathMax(0.001, tolerance); }
+   static void                SetAnalysisDepth(int depth) { m_analysisDepth = MathMax(50, depth); }
+   static void                SetUseVolumeAnalysis(bool use) { m_useVolumeAnalysis = use; }
+   static void                SetEnableConfluence(bool enable) { m_enableConfluence = enable; }
+   
+   // التحليل الشامل للمخطط - إصلاح التوقيع
+   static SChartAnalysis      PerformComprehensiveAnalysis(const string symbol, 
+                                                          ENUM_TIMEFRAMES timeframe,
+                                                          const double &high[], 
+                                                          const double &low[], 
+                                                          const double &close[],
+                                                          const long &volume[],
+                                                          const datetime &time[],
+                                                          int rates_total);
+   
+   // تحليل التوافق - إصلاح التوقيع
+   static int                 FindConfluenceZones(const double &high[], const double &low[], 
+                                                 const double &close[], const long &volume[],
+                                                 const datetime &time[], int rates_total,
+                                                 SConfluencePoint &confluencePoints[]);
+   
+   static ENUM_CONFLUENCE_LEVEL CalculateConfluenceLevel(double price, 
+                                                        const double &high[], const double &low[], 
+                                                        const double &close[], int rates_total);
+   
+   // دوال تحليل متقدمة
+   static double              CalculateMarketStructure(const double &high[], const double &low[], 
+                                                      const double &close[], int rates_total);
+   
+   static double              CalculatePriceVelocity(const double &close[], int period, int rates_total);
+   
+   static bool                DetectPriceExpansion(const double &high[], const double &low[], 
+                                                  int period, int rates_total);
+   
+   static bool                DetectPriceContraction(const double &high[], const double &low[], 
+                                                    int period, int rates_total);
+   
+   // تحليل القوة النسبية بين الإطارات الزمنية
+   static double              CalculateMultiTimeframeStrength(const string symbol,
+                                                             const ENUM_TIMEFRAMES &timeframes[],
+                                                             ENUM_TREND_TYPE direction);
+   
+   // دوال تحليل السيولة - إصلاح التوقيع
+   static double              CalculateLiquidityLevel(const double &high[], const double &low[], 
+                                                     const long &volume[], int rates_total);
+   
+   static bool                DetectLiquidityGrab(const double &high[], const double &low[], 
+                                                 const double &close[], const long &volume[],
+                                                 int rates_total);
+   
+   // تحليل هيكل السوق
+   static bool                IsMarketStructureBullish(const double &high[], const double &low[], 
+                                                      int lookback, int rates_total);
+   
+   static bool                IsMarketStructureBearish(const double &high[], const double &low[], 
+                                                      int lookback, int rates_total);
+   
+   // دوال التحليل الإحصائي المتقدم
+   static double              CalculateSkewness(const double &prices[], int period, int start = 0);
+   static double              CalculateKurtosis(const double &prices[], int period, int start = 0);
+   static double              CalculateRSquared(const double &actual[], const double &predicted[], 
+                                               int period, int start = 0);
+   
+   // تحليل الانحدار وخطوط الاتجاه
+   static bool                CalculateLinearRegression(const double &prices[], int period,
+                                                       double &slope, double &intercept, 
+                                                       double &correlation, int start = 0);
+   
+   static double              CalculateRegressionDeviation(const double &prices[], 
+                                                          double slope, double intercept,
+                                                          int period, int start = 0);
+   
+   // دوال تحليل الدورات
+   static bool                DetectCyclicalPattern(const double &prices[], int minCycle, 
+                                                   int maxCycle, int rates_total);
+   
+   static double              CalculateCycleProbability(const double &prices[], int cycleLength,
+                                                       int rates_total);
+   
+   // دوال التنبؤ
+   static double              PredictNextPrice(const double &prices[], int period, 
+                                              ENUM_TREND_TYPE trend, int rates_total);
+   
+   static bool                PredictPriceTarget(const double &high[], const double &low[], 
+                                                const double &close[], double currentPrice,
+                                                double &upperTarget, double &lowerTarget);
+   
+   // دوال تحليل المخاطر
+   static double              CalculateValueAtRisk(const double &returns[], double confidence,
+                                                  int period, int start = 0);
+   
+   static double              CalculateMaxDrawdown(const double &prices[], int period, int start = 0);
+   
+   static double              CalculateSharpeRatio(const double &returns[], double riskFreeRate,
+                                                  int period, int start = 0);
+   
+   // دوال مساعدة للأداء
+   static void                OptimizeAnalysisParameters(const double &high[], const double &low[], 
+                                                        const double &close[], int rates_total,
+                                                        double &optimalTolerance, 
+                                                        int &optimalDepth);
+   
+   static double              CalculateAnalysisAccuracy(const SChartAnalysis &analysis,
+                                                       const double &actualPrices[], 
+                                                       int validationPeriod);
+   
+   // دوال التقارير والتصدير
+   static string              AnalysisToString(const SChartAnalysis &analysis);
+   static string              ConfluencePointToString(const SConfluencePoint &point);
+   static void                GenerateAnalysisReport(const SChartAnalysis &analysis,
+                                                    const SConfluencePoint &confluencePoints[],
+                                                    string &report);
+   
+   // دوال التحليل الأساسية المحدثة
+   static double              CalculateVolatility(const double &high[], const double &low[], 
+                                                 int period, int start);
+   
+private:
+   // دوال مساعدة خاصة
+   static double              CalculateCompoundStrength(const double &values[], int count);
+   static bool                ValidateAnalysisInput(const double &high[], const double &low[], 
+                                                   const double &close[], int rates_total);
+   static void                NormalizeConfluenceFactors(SConfluencePoint &point);
+   static double              WeightFactorsByTimeframe(ENUM_TIMEFRAMES timeframe, double baseFactor);
+};
+
+// تعريف المتغيرات الثابتة
+CTrendDetector* CAdvancedChartUtils::m_trendDetector = NULL;
+bool CAdvancedChartUtils::m_initialized = false;
+double CAdvancedChartUtils::m_tolerance = 0.02;
+int CAdvancedChartUtils::m_analysisDepth = 100;
+bool CAdvancedChartUtils::m_useVolumeAnalysis = true;
+bool CAdvancedChartUtils::m_enableConfluence = true;
+
+//+------------------------------------------------------------------+
+//| تهيئة أدوات المخططات المتقدمة |
+//+------------------------------------------------------------------+
+bool CAdvancedChartUtils::Initialize(double tolerance, int analysisDepth)
+{
+   if(m_initialized)
       return true;
-   
-   // حساب خط الانحدار الخطي
-   double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-   
-   for(int i = 0; i < count; i++)
-   {
-      double x = points[i].index;
-      double y = points[i].price;
       
-      sumX += x;
-      sumY += y;
+   // تهيئة أدوات الشموع أولاً
+   CCandleUtils::Initialize(); // هذه الدالة لا ترجع قيمة
+   
+   // إنشاء كاشف الاتجاه المتقدم
+   m_trendDetector = new CTrendDetector();
+   if(m_trendDetector == NULL)
+   {
+      Print("خطأ: فشل في إنشاء كاشف الاتجاه");
+      return false;
+   }
+   
+   // تعيين المعاملات
+   m_tolerance = MathMax(0.001, tolerance);
+   m_analysisDepth = MathMax(50, analysisDepth);
+   
+   m_initialized = true;
+   Print("تم تهيئة أدوات المخططات المتقدمة بنجاح");
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| إلغاء تهيئة أدوات المخططات |
+//+------------------------------------------------------------------+
+void CAdvancedChartUtils::Deinitialize()
+{
+   if(m_trendDetector != NULL)
+   {
+      delete m_trendDetector;
+      m_trendDetector = NULL;
+   }
+   
+   m_initialized = false;
+   Print("تم إلغاء تهيئة أدوات المخططات المتقدمة");
+}
+
+//+------------------------------------------------------------------+
+//| التحليل الشامل للمخطط - مُحدث |
+//+------------------------------------------------------------------+
+SChartAnalysis CAdvancedChartUtils::PerformComprehensiveAnalysis(const string symbol, 
+                                                               ENUM_TIMEFRAMES timeframe,
+                                                               const double &high[], 
+                                                               const double &low[], 
+                                                               const double &close[],
+                                                               const long &volume[],
+                                                               const datetime &time[],
+                                                               int rates_total)
+{
+   SChartAnalysis analysis;
+   
+   if(!ValidateAnalysisInput(high, low, close, rates_total))
+   {
+      Print("خطأ: بيانات التحليل غير صحيحة");
+      return analysis;
+   }
+   
+   analysis.analysisTime = TimeCurrent();
+   analysis.timeframe = timeframe;
+   analysis.currentPrice = close[rates_total - 1];
+   
+   // تحليل الاتجاه
+   if(m_trendDetector != NULL)
+   {
+      // نسخ بيانات الافتتاح من الرمز
+      double open[];
+      ArraySetAsSeries(open, true);
+      
+      // نسخ بيانات الافتتاح من المخدم
+      if(CopyOpen(symbol, timeframe, 0, rates_total, open) <= 0)
+      {
+         // إذا فشل في نسخ بيانات الافتتاح، نرجع للتحليل البسيط
+         Print("تحذير: فشل في نسخ بيانات الافتتاح، استخدام تحليل مبسط");
+         analysis.overallTrend = TREND_NEUTRAL;
+         analysis.trendStrength = 0.5;
+      }
+      else
+      {
+         // استدعاء الدالة بالمعاملات الصحيحة
+         analysis.overallTrend = m_trendDetector.DetectTrend(open, high, low, close, volume, rates_total, rates_total - 1);
+         analysis.trendStrength = m_trendDetector.GetTrendStrength();
+      }
+      
+      // تحديد موثوقية الاتجاه
+      if(analysis.trendStrength >= 0.8)
+         analysis.trendReliability = TIMEFRAME_STRENGTH_VERY_STRONG;
+      else if(analysis.trendStrength >= 0.6)
+         analysis.trendReliability = TIMEFRAME_STRENGTH_STRONG;
+      else if(analysis.trendStrength >= 0.4)
+         analysis.trendReliability = TIMEFRAME_STRENGTH_MODERATE;
+      else
+         analysis.trendReliability = TIMEFRAME_STRENGTH_WEAK;
+   }
+   
+   // تحليل الزخم والسرعة
+   analysis.momentum = CalculatePriceVelocity(close, 14, rates_total);
+   analysis.priceVelocity = CalculatePriceVelocity(close, 5, rates_total);
+   
+   // تحليل التقلبات
+   if(rates_total >= 20)
+      analysis.volatility = CalculateVolatility(high, low, 20, rates_total - 20);
+   
+   // تحليل الحجم إذا كان متاحاً
+   if(m_useVolumeAnalysis && ArraySize(volume) > 0)
+   {
+      // حساب متوسط الحجم
+      double avgVolume = 0.0;
+      int volPeriod = MathMin(20, rates_total - 1);
+      for(int i = rates_total - volPeriod; i < rates_total; i++)
+         avgVolume += (double)volume[i]; // تحويل من long إلى double
+      avgVolume /= volPeriod;
+      
+      if(avgVolume > 0)
+      {
+         analysis.volumeConfirmation = (double)volume[rates_total - 1] / avgVolume;
+         analysis.volumeAnomaly = (analysis.volumeConfirmation > 2.0 || analysis.volumeConfirmation < 0.5);
+      }
+   }
+   
+   // حساب هيكل السوق
+   double marketStructure = CalculateMarketStructure(high, low, close, rates_total);
+   
+   // تحليل التوافق إذا كان مفعلاً
+   if(m_enableConfluence)
+   {
+      analysis.confluenceLevel = CalculateConfluenceLevel(analysis.currentPrice, high, low, close, rates_total);
+   }
+   
+   // حساب النقاط الإجمالية للموثوقية
+   analysis.reliabilityScore = 0.0;
+   analysis.reliabilityScore += analysis.trendStrength * 0.3;  // 30% للاتجاه
+   analysis.reliabilityScore += (analysis.volumeConfirmation > 1.2 ? 0.2 : 0.0);  // 20% للحجم
+   analysis.reliabilityScore += (analysis.confluenceLevel >= CONFLUENCE_MEDIUM ? 0.25 : 0.0);  // 25% للتوافق
+   analysis.reliabilityScore += (marketStructure > 0.6 ? 0.25 : 0.0);  // 25% لهيكل السوق
+   
+   return analysis;
+}
+
+//+------------------------------------------------------------------+
+//| حساب سرعة السعر |
+//+------------------------------------------------------------------+
+double CAdvancedChartUtils::CalculatePriceVelocity(const double &close[], int period, int rates_total)
+{
+   if(rates_total < period + 1 || period <= 0)
+      return 0.0;
+   
+   double totalChange = 0.0;
+   for(int i = rates_total - period; i < rates_total - 1; i++)
+   {
+      totalChange += (close[i + 1] - close[i]);
+   }
+   
+   return totalChange / period;
+}
+
+//+------------------------------------------------------------------+
+//| حساب هيكل السوق |
+//+------------------------------------------------------------------+
+double CAdvancedChartUtils::CalculateMarketStructure(const double &high[], const double &low[], 
+                                                    const double &close[], int rates_total)
+{
+   if(rates_total < 20)
+      return 0.5;
+   
+   int higherHighs = 0, lowerLows = 0, totalSwings = 0;
+   
+   // البحث عن القمم والقيعان المحلية
+   for(int i = 5; i < rates_total - 5; i++)
+   {
+      bool isHigh = true, isLow = true;
+      
+      // فحص القمة
+      for(int j = i - 3; j <= i + 3; j++)
+      {
+         if(j != i && high[j] >= high[i])
+         {
+            isHigh = false;
+            break;
+         }
+      }
+      
+      // فحص القاع
+      for(int j = i - 3; j <= i + 3; j++)
+      {
+         if(j != i && low[j] <= low[i])
+         {
+            isLow = false;
+            break;
+         }
+      }
+      
+      if(isHigh && i > 10)
+      {
+         // البحث عن قمة سابقة للمقارنة
+         for(int k = i - 10; k >= 5; k--)
+         {
+            bool isPrevHigh = true;
+            for(int l = k - 3; l <= k + 3; l++)
+            {
+               if(l != k && l >= 0 && high[l] >= high[k])
+               {
+                  isPrevHigh = false;
+                  break;
+               }
+            }
+            if(isPrevHigh)
+            {
+               totalSwings++;
+               if(high[i] > high[k])
+                  higherHighs++;
+               break;
+            }
+         }
+      }
+      
+      if(isLow && i > 10)
+      {
+         // البحث عن قاع سابق للمقارنة
+         for(int k = i - 10; k >= 5; k--)
+         {
+            bool isPrevLow = true;
+            for(int l = k - 3; l <= k + 3; l++)
+            {
+               if(l != k && l >= 0 && low[l] <= low[k])
+               {
+                  isPrevLow = false;
+                  break;
+               }
+            }
+            if(isPrevLow)
+            {
+               totalSwings++;
+               if(low[i] < low[k])
+                  lowerLows++;
+               break;
+            }
+         }
+      }
+   }
+   
+   if(totalSwings == 0)
+      return 0.5;
+   
+   // نسبة القمم الأعلى والقيعان الأدنى تشير لقوة الهيكل
+   return (double)(higherHighs + lowerLows) / (totalSwings * 2);
+}
+
+//+------------------------------------------------------------------+
+//| حساب مستوى التوافق |
+//+------------------------------------------------------------------+
+ENUM_CONFLUENCE_LEVEL CAdvancedChartUtils::CalculateConfluenceLevel(double price, 
+                                                                   const double &high[], const double &low[], 
+                                                                   const double &close[], int rates_total)
+{
+   int confluenceFactors = 0;
+   double tolerance = price * m_tolerance;
+   
+   // عامل 1: قرب من مستويات الدعم/المقاومة التاريخية
+   for(int i = 0; i < rates_total - 20; i += 5)
+   {
+      if(MathAbs(high[i] - price) <= tolerance || MathAbs(low[i] - price) <= tolerance)
+      {
+         confluenceFactors++;
+         break;
+      }
+   }
+   
+   // عامل 2: قرب من المتوسطات المتحركة المهمة
+   double sma20 = 0.0, sma50 = 0.0;
+   if(rates_total >= 50)
+   {
+      for(int i = rates_total - 20; i < rates_total; i++)
+         sma20 += close[i];
+      sma20 /= 20;
+      
+      for(int i = rates_total - 50; i < rates_total; i++)
+         sma50 += close[i];
+      sma50 /= 50;
+      
+      if(MathAbs(sma20 - price) <= tolerance || MathAbs(sma50 - price) <= tolerance)
+         confluenceFactors++;
+   }
+   
+   // عامل 3: قرب من مستويات الأرقام النفسية
+   double roundNumber = MathRound(price * 100) / 100; // تقريب لأقرب سنت
+   if(MathAbs(roundNumber - price) <= tolerance)
+      confluenceFactors++;
+   
+   // عامل 4: قرب من مستويات فيبوناتشي
+   if(rates_total >= 100)
+   {
+      double highestHigh = high[ArrayMaximum(high, rates_total - 100, 100)];
+      double lowestLow = low[ArrayMinimum(low, rates_total - 100, 100)];
+      double range = highestHigh - lowestLow;
+      
+      double fibLevels[] = {0.236, 0.382, 0.5, 0.618, 0.764};
+      for(int i = 0; i < ArraySize(fibLevels); i++)
+      {
+         double fibPrice = lowestLow + (range * fibLevels[i]);
+         if(MathAbs(fibPrice - price) <= tolerance)
+         {
+            confluenceFactors++;
+            break;
+         }
+      }
+   }
+   
+   // تحديد مستوى التوافق بناءً على عدد العوامل
+   if(confluenceFactors >= 4)
+      return CONFLUENCE_VERY_HIGH;
+   else if(confluenceFactors >= 3)
+      return CONFLUENCE_HIGH;
+   else if(confluenceFactors >= 2)
+      return CONFLUENCE_MEDIUM;
+   else if(confluenceFactors >= 1)
+      return CONFLUENCE_LOW;
+   else
+      return CONFLUENCE_NONE;
+}
+
+//+------------------------------------------------------------------+
+//| حساب الانحدار الخطي |
+//+------------------------------------------------------------------+
+bool CAdvancedChartUtils::CalculateLinearRegression(const double &prices[], int period,
+                                                   double &slope, double &intercept, 
+                                                   double &correlation, int start)
+{
+   if(period < 2 || start + period > ArraySize(prices))
+      return false;
+   
+   // حساب المتوسطات
+   double sumX = 0.0, sumY = 0.0;
+   for(int i = 0; i < period; i++)
+   {
+      sumX += i;
+      sumY += prices[start + i];
+   }
+   double avgX = sumX / period;
+   double avgY = sumY / period;
+   
+   // حساب المعادلات
+   double sumXY = 0.0, sumXX = 0.0, sumYY = 0.0;
+   for(int i = 0; i < period; i++)
+   {
+      double x = i - avgX;
+      double y = prices[start + i] - avgY;
       sumXY += x * y;
-      sumX2 += x * x;
+      sumXX += x * x;
+      sumYY += y * y;
    }
    
-   double slope = (count * sumXY - sumX * sumY) / (count * sumX2 - sumX * sumX);
-   double intercept = (sumY - slope * sumX) / count;
-   
-   // فحص انحراف النقاط عن الخط
-   for(int i = 0; i < count; i++)
+   // حساب الميل ونقطة التقاطع
+   if(sumXX != 0.0)
    {
-      double expectedY = slope * points[i].index + intercept;
-      double deviation = MathAbs(points[i].price - expectedY) / points[i].price;
+      slope = sumXY / sumXX;
+      intercept = avgY - (slope * avgX);
       
-      if(deviation > tolerance)
+      // حساب معامل الارتباط
+      if(sumXX != 0.0 && sumYY != 0.0)
+         correlation = sumXY / MathSqrt(sumXX * sumYY);
+      else
+         correlation = 0.0;
+      
+      return true;
+   }
+   
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| التحقق من صحة بيانات التحليل |
+//+------------------------------------------------------------------+
+bool CAdvancedChartUtils::ValidateAnalysisInput(const double &high[], const double &low[], 
+                                               const double &close[], int rates_total)
+{
+   if(rates_total < 20)
+      return false;
+      
+   // التحقق من أحجام المصفوفات
+   if(ArraySize(high) < rates_total || ArraySize(low) < rates_total || ArraySize(close) < rates_total)
+      return false;
+   
+   // التحقق من العلاقات المنطقية
+   for(int i = 0; i < rates_total; i++)
+   {
+      if(high[i] < low[i] || close[i] <= 0 || high[i] <= 0 || low[i] <= 0)
          return false;
    }
    
    return true;
 }
 
-bool CChartUtils::IsVolumeClimaxPattern(const long &volume[], const int startIdx, 
-                                       const int endIdx)
+//+------------------------------------------------------------------+
+//| تحويل التحليل إلى نص |
+//+------------------------------------------------------------------+
+string CAdvancedChartUtils::AnalysisToString(const SChartAnalysis &analysis)
 {
-   if(endIdx - startIdx < 3)
+   string result = "";
+   result += "=== تحليل شامل للمخطط ===\n";
+   result += StringFormat("الوقت: %s\n", TimeToString(analysis.analysisTime));
+   result += StringFormat("السعر الحالي: %.5f\n", analysis.currentPrice);
+   result += StringFormat("الاتجاه العام: %s (القوة: %.2f)\n", 
+                         EnumToString(analysis.overallTrend), analysis.trendStrength);
+   result += StringFormat("الزخم: %.5f\n", analysis.momentum);
+   result += StringFormat("التقلبات: %.5f\n", analysis.volatility);
+   result += StringFormat("سرعة السعر: %.5f\n", analysis.priceVelocity);
+   result += StringFormat("تأكيد الحجم: %.2f\n", analysis.volumeConfirmation);
+   result += StringFormat("مستوى التوافق: %s\n", EnumToString(analysis.confluenceLevel));
+   result += StringFormat("نقاط الموثوقية: %.2f/1.0\n", analysis.reliabilityScore);
+   result += "=========================";
+   
+   return result;
+}
+
+//+------------------------------------------------------------------+
+//| حساب التقلبات المتقدم |
+//+------------------------------------------------------------------+
+double CAdvancedChartUtils::CalculateVolatility(const double &high[], const double &low[], 
+                                               int period, int start)
+{
+   if(period <= 0 || start + period > ArraySize(high) || start < 0)
+      return 0.0;
+   
+   double totalRange = 0.0;
+   for(int i = start; i < start + period; i++)
+   {
+      totalRange += (high[i] - low[i]);
+   }
+   
+   return totalRange / period;
+}
+
+//+------------------------------------------------------------------+
+//| كشف توسع السعر |
+//+------------------------------------------------------------------+
+bool CAdvancedChartUtils::DetectPriceExpansion(const double &high[], const double &low[], 
+                                              int period, int rates_total)
+{
+   if(rates_total < period * 2 || period <= 0)
       return false;
    
-   // البحث عن أعلى حجم في الفترة
-   long maxVolume = volume[startIdx];
-   int maxIndex = startIdx;
+   // حساب متوسط المدى للفترة الحالية والسابقة
+   double currentAvgRange = CalculateVolatility(high, low, period, rates_total - period);
+   double previousAvgRange = CalculateVolatility(high, low, period, rates_total - period * 2);
    
-   for(int i = startIdx + 1; i <= endIdx; i++)
+   // التوسع يحدث عندما يزيد المدى الحالي عن السابق بشكل ملحوظ
+   return (currentAvgRange > previousAvgRange * 1.5);
+}
+
+//+------------------------------------------------------------------+
+//| كشف انكماش السعر |
+//+------------------------------------------------------------------+
+bool CAdvancedChartUtils::DetectPriceContraction(const double &high[], const double &low[], 
+                                                int period, int rates_total)
+{
+   if(rates_total < period * 2 || period <= 0)
+      return false;
+   
+   // حساب متوسط المدى للفترة الحالية والسابقة
+   double currentAvgRange = CalculateVolatility(high, low, period, rates_total - period);
+   double previousAvgRange = CalculateVolatility(high, low, period, rates_total - period * 2);
+   
+   // الانكماش يحدث عندما ينقص المدى الحالي عن السابق بشكل ملحوظ
+   return (currentAvgRange < previousAvgRange * 0.7);
+}
+
+//+------------------------------------------------------------------+
+//| تحليل هيكل السوق الصاعد |
+//+------------------------------------------------------------------+
+bool CAdvancedChartUtils::IsMarketStructureBullish(const double &high[], const double &low[], 
+                                                  int lookback, int rates_total)
+{
+   if(rates_total < lookback || lookback <= 0)
+      return false;
+   
+   // البحث عن قمم أعلى وقيعان أعلى
+   int higherHighs = 0, higherLows = 0;
+   double lastHigh = 0.0, lastLow = DBL_MAX;
+   
+   for(int i = rates_total - lookback; i < rates_total; i++)
    {
-      if(volume[i] > maxVolume)
+      if(high[i] > lastHigh)
       {
-         maxVolume = volume[i];
-         maxIndex = i;
+         higherHighs++;
+         lastHigh = high[i];
+      }
+      
+      if(low[i] > lastLow && lastLow != DBL_MAX)
+      {
+         higherLows++;
+      }
+      lastLow = MathMin(lastLow, low[i]);
+   }
+   
+   // يعتبر الهيكل صاعد إذا كان هناك قمم وقيعان أعلى
+   return (higherHighs >= 2 && higherLows >= 1);
+}
+
+//+------------------------------------------------------------------+
+//| تحليل هيكل السوق الهابط |
+//+------------------------------------------------------------------+
+bool CAdvancedChartUtils::IsMarketStructureBearish(const double &high[], const double &low[], 
+                                                  int lookback, int rates_total)
+{
+   if(rates_total < lookback || lookback <= 0)
+      return false;
+   
+   // البحث عن قمم أدنى وقيعان أدنى
+   int lowerHighs = 0, lowerLows = 0;
+   double lastHigh = DBL_MAX, lastLow = 0.0;
+   
+   for(int i = rates_total - lookback; i < rates_total; i++)
+   {
+      if(high[i] < lastHigh && lastHigh != DBL_MAX)
+      {
+         lowerHighs++;
+      }
+      lastHigh = MathMin(lastHigh, high[i]);
+      
+      if(low[i] < lastLow)
+      {
+         lowerLows++;
+         lastLow = low[i];
       }
    }
    
-   // فحص إذا كان الحجم في المنتصف تقريباً وأعلى من المتوسط بكثير
-   double avgVolume = CalculateAverageVolume(startIdx, endIdx - startIdx + 1, volume);
-   
-   return (maxVolume >= avgVolume * 3.0 && 
-           maxIndex > startIdx + 1 && 
-           maxIndex < endIdx - 1);
+   // يعتبر الهيكل هابط إذا كان هناك قمم وقيعان أدنى
+   return (lowerHighs >= 1 && lowerLows >= 2);
 }
+
+//+------------------------------------------------------------------+
+//| حساب القوة المركبة |
+//+------------------------------------------------------------------+
+double CAdvancedChartUtils::CalculateCompoundStrength(const double &values[], int count)
+{
+   if(count <= 0)
+      return 0.0;
+      
+   double total = 0.0;
+   for(int i = 0; i < count; i++)
+   {
+      total += values[i];
+   }
+   
+   return total / count;
+}
+
+//+------------------------------------------------------------------+

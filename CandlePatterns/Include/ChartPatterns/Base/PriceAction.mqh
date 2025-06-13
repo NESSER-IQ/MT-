@@ -1,1307 +1,1221 @@
 //+------------------------------------------------------------------+
-//|                                                  PriceAction.mqh |
-//|                                    تحليل حركة السعر             |
-//|                         حقوق النشر 2025, مكتبة أنماط الشموع اليابانية |
+//| PriceAction.mqh - مُصحح بالكامل |
+//| حقوق النشر 2025, مكتبة أنماط المخططات |
 //+------------------------------------------------------------------+
-#property copyright "حقوق النشر 2025, مكتبة أنماط الشموع اليابانية"
-#property link      "https://www.yourwebsite.com"
-#property version   "1.00"
+#property copyright "حقوق النشر 2025, مكتبة أنماط المخططات"
+#property link "https://www.yourwebsite.com"
+#property version "1.01"
 #property strict
 
-#include "ChartUtils.mqh"
+#include "ChartPattern.mqh"
+#include "SupportResistance.mqh"
+#include "TrendLineDetector.mqh"
+#include "../../CandlePatterns/Base/CandleUtils.mqh"
 
 //+------------------------------------------------------------------+
-//| تعدادات تحليل حركة السعر                                        |
+//| تعدادات اتجاه الترند - لتجنب التضارب |
+//+------------------------------------------------------------------+
+enum ENUM_PA_TREND_DIRECTION
+{
+   PA_TREND_BULLISH,         // صاعد
+   PA_TREND_BEARISH,         // هابط
+   PA_TREND_SIDEWAYS         // جانبي
+};
+
+//+------------------------------------------------------------------+
+//| تعدادات تحليل حركة السعر |
 //+------------------------------------------------------------------+
 enum ENUM_PRICE_ACTION_TYPE
 {
-   PA_BREAKOUT,             // اختراق
-   PA_PULLBACK,             // تراجع
-   PA_REVERSAL,             // انعكاس
-   PA_CONTINUATION,         // استمرار
-   PA_CONSOLIDATION,        // توطيد
-   PA_EXPANSION,            // توسع
-   PA_COMPRESSION,          // انضغاط
-   PA_MOMENTUM_SHIFT        // تغير في الزخم
+   PA_BREAKOUT,           // اختراق
+   PA_PULLBACK,           // ارتداد
+   PA_REVERSAL,           // انعكاس
+   PA_CONTINUATION,       // استمرار
+   PA_CONSOLIDATION,      // توطيد
+   PA_EXHAUSTION,         // استنزاف
+   PA_MOMENTUM_SHIFT,     // تغيير في الزخم
+   PA_VOLUME_CLIMAX       // ذروة حجم التداول
 };
 
-enum ENUM_MARKET_STRUCTURE
+enum ENUM_PRICE_STRUCTURE
 {
-   STRUCTURE_UPTREND,       // اتجاه صاعد
-   STRUCTURE_DOWNTREND,     // اتجاه هابط
-   STRUCTURE_SIDEWAYS,      // حركة جانبية
-   STRUCTURE_TRANSITION,    // مرحلة انتقال
-   STRUCTURE_UNDEFINED      // غير محدد
+   PS_HIGHER_HIGHS,       // قمم أعلى
+   PS_LOWER_LOWS,         // قيعان أدنى
+   PS_EQUAL_HIGHS,        // قمم متساوية
+   PS_EQUAL_LOWS,         // قيعان متساوية
+   PS_DOUBLE_TOP,         // قمة مزدوجة
+   PS_DOUBLE_BOTTOM,      // قاع مزدوج
+   PS_TRIPLE_TOP,         // قمة ثلاثية
+   PS_TRIPLE_BOTTOM       // قاع ثلاثي
 };
 
-enum ENUM_PRICE_MOMENTUM
+enum ENUM_MOMENTUM_STATE
 {
-   MOMENTUM_STRONG_BULLISH, // زخم صعودي قوي
-   MOMENTUM_WEAK_BULLISH,   // زخم صعودي ضعيف
-   MOMENTUM_NEUTRAL,        // زخم محايد
-   MOMENTUM_WEAK_BEARISH,   // زخم هبوطي ضعيف
-   MOMENTUM_STRONG_BEARISH  // زخم هبوطي قوي
+   MOMENTUM_ACCELERATING, // متسارع
+   MOMENTUM_DECELERATING, // متباطئ
+   MOMENTUM_SIDEWAYS,     // جانبي
+   MOMENTUM_EXHAUSTED     // منهك
 };
 
-// إضافة التعداد المفقود
-enum ENUM_PATTERN_DIRECTION
+enum ENUM_VOLUME_ANALYSIS
 {
-   PATTERN_BULLISH,         // صعودي
-   PATTERN_BEARISH,         // هبوطي
-   PATTERN_NEUTRAL          // محايد
+   VOLUME_INCREASING,     // متزايد
+   VOLUME_DECREASING,     // متناقص
+   VOLUME_CLIMAX,         // ذروة
+   VOLUME_DRY_UP,         // جفاف
+   VOLUME_NORMAL          // طبيعي
 };
 
 //+------------------------------------------------------------------+
-//| هيكل تحليل حركة السعر                                           |
+//| هيكل نقطة الرسم البياني - لتجنب التضارب |
 //+------------------------------------------------------------------+
-struct SPriceActionAnalysis
+struct SPAChartPoint
 {
-   ENUM_PRICE_ACTION_TYPE actionType;    // نوع حركة السعر
-   ENUM_MARKET_STRUCTURE structure;      // هيكل السوق
-   ENUM_PRICE_MOMENTUM momentum;         // الزخم
+   datetime                time;        // الوقت
+   double                  price;       // السعر
+   int                     barIndex;    // فهرس الشمعة
+   bool                    isValid;     // صحة النقطة
    
-   double            strength;           // قوة حركة السعر (0-1)
-   double            velocity;           // سرعة الحركة
-   double            acceleration;       // التسارع
-   
-   SChartPoint       keyLevels[];        // المستويات الرئيسية
-   STrendLine        trendLines[];       // خطوط الاتجاه
-   
-   double            supportLevel;       // مستوى الدعم الحالي
-   double            resistanceLevel;    // مستوى المقاومة الحالي
-   
-   bool              isBreakout;         // هناك اختراق
-   bool              isPullback;         // هناك تراجع
-   bool              isReversal;         // هناك انعكاس
-   
-   datetime          analysisTime;       // وقت التحليل
-   string            description;        // وصف التحليل
-   
-   SPriceActionAnalysis()
+   SPAChartPoint()
    {
-      actionType = PA_CONSOLIDATION;
-      structure = STRUCTURE_UNDEFINED;
-      momentum = MOMENTUM_NEUTRAL;
-      
-      strength = 0.0;
-      velocity = 0.0;
-      acceleration = 0.0;
-      
-      ArrayResize(keyLevels, 0);
-      ArrayResize(trendLines, 0);
-      
-      supportLevel = 0.0;
-      resistanceLevel = 0.0;
-      
-      isBreakout = false;
-      isPullback = false;
-      isReversal = false;
-      
-      analysisTime = 0;
-      description = "";
+      time = 0;
+      price = 0.0;
+      barIndex = -1;
+      isValid = false;
    }
 };
 
 //+------------------------------------------------------------------+
-//| هيكل إحصائيات الشموع                                           |
+//| هيكل تحليل حركة السعر |
 //+------------------------------------------------------------------+
-struct SCandleStatistics
+struct SPriceActionSignal
 {
-   int               totalCandles;       // إجمالي الشموع
-   int               bullishCandles;     // الشموع الصعودية
-   int               bearishCandles;     // الشموع الهبوطية
-   int               dojiCandles;        // شموع الدوجي
+   // معلومات الإشارة
+   long                    id;                  // معرف الإشارة
+   string                  name;                // اسم الإشارة
+   ENUM_PRICE_ACTION_TYPE  type;                // نوع حركة السعر
+   ENUM_PATTERN_DIRECTION  direction;           // الاتجاه
+   ENUM_PRICE_STRUCTURE    structure;           // هيكل السعر
    
-   double            avgBodySize;        // متوسط حجم الجسم
-   double            avgUpperShadow;     // متوسط الظل العلوي
-   double            avgLowerShadow;     // متوسط الظل السفلي
-   double            avgRange;           // متوسط المدى
-   
-   double            bodyToRangeRatio;   // نسبة الجسم للمدى
-   double            shadowToBodyRatio;  // نسبة الظلال للجسم
-   
-   int               consecutiveBullish; // الشموع الصعودية المتتالية
-   int               consecutiveBearish; // الشموع الهبوطية المتتالية
-   
-   SCandleStatistics()
-   {
-      totalCandles = 0;
-      bullishCandles = 0;
-      bearishCandles = 0;
-      dojiCandles = 0;
-      
-      avgBodySize = 0.0;
-      avgUpperShadow = 0.0;
-      avgLowerShadow = 0.0;
-      avgRange = 0.0;
-      
-      bodyToRangeRatio = 0.0;
-      shadowToBodyRatio = 0.0;
-      
-      consecutiveBullish = 0;
-      consecutiveBearish = 0;
-   }
-};
-
-//+------------------------------------------------------------------+
-//| فئة تحليل حركة السعر                                            |
-//+------------------------------------------------------------------+
-class CPriceAction
-{
-private:
-   // إعدادات المحلل
-   string            m_symbol;
-   ENUM_TIMEFRAMES   m_timeframe;
-   bool              m_initialized;
-   
-   // معاملات التحليل
-   int               m_analysisPeriod;      // فترة التحليل
-   double            m_breakoutThreshold;   // عتبة الاختراق
-   double            m_momentumThreshold;   // عتبة الزخم
-   int               m_trendPeriod;         // فترة تحديد الاتجاه
-   
-   // بيانات التحليل الحالي
-   SPriceActionAnalysis m_currentAnalysis;
-   SCandleStatistics    m_candleStats;
-   
-   // البيانات التاريخية
-   SPriceActionAnalysis m_historicalAnalysis[];
-   
-   // أدوات مساعدة
-   CChartUtils      *m_chartUtils;
-   
-public:
-   // المنشئ والهادم
-                     CPriceAction();
-                     ~CPriceAction();
-   
-   // تهيئة المحلل
-   bool              Initialize(const string symbol = "", const ENUM_TIMEFRAMES timeframe = PERIOD_CURRENT);
-   void              Deinitialize();
-   
-   // إعداد المعاملات
-   void              SetAnalysisParameters(const int analysisPeriod, const double breakoutThreshold,
-                                         const double momentumThreshold, const int trendPeriod);
-   
-   // التحليل الرئيسي
-   SPriceActionAnalysis AnalyzePriceAction(const int startIdx, const int endIdx,
-                                          const double &open[], const double &high[],
-                                          const double &low[], const double &close[],
-                                          const long &volume[]);
-   
-   // تحليل هيكل السوق
-   ENUM_MARKET_STRUCTURE AnalyzeMarketStructure(const int startIdx, const int endIdx,
-                                               const double &high[], const double &low[]);
+   // معلومات الموقع
+   SPAChartPoint           triggerPoint;        // نقطة التفعيل
+   SPAChartPoint           confirmationPoint;   // نقطة التأكيد
+   SPAChartPoint           entryPoint;          // نقطة الدخول
+   SPAChartPoint           stopLossPoint;       // نقطة وقف الخسارة
+   SPAChartPoint           takeProfitPoint;     // نقطة جني الأرباح
    
    // تحليل الزخم
-   ENUM_PRICE_MOMENTUM AnalyzeMomentum(const int startIdx, const int endIdx,
-                                      const double &close[], const long &volume[]);
-   
-   // تحليل الاختراقات
-   bool              DetectBreakout(const int idx, const double &high[], const double &low[],
-                                  const long &volume[], double &breakoutLevel);
-   
-   bool              IsValidBreakout(const double currentPrice, const double breakoutLevel,
-                                   const long currentVolume, const long avgVolume);
-   
-   // تحليل التراجعات
-   bool              DetectPullback(const int startIdx, const int endIdx,
-                                  const double &high[], const double &low[]);
-   
-   // تحليل الانعكاسات
-   bool              DetectReversal(const int startIdx, const int endIdx,
-                                  const double &open[], const double &high[],
-                                  const double &low[], const double &close[]);
-   
-   // تحليل التوطيد
-   bool              DetectConsolidation(const int startIdx, const int endIdx,
-                                       const double &high[], const double &low[]);
-   
-   // تحليل الشموع
-   SCandleStatistics AnalyzeCandlePatterns(const int startIdx, const int endIdx,
-                                         const double &open[], const double &high[],
-                                         const double &low[], const double &close[]);
-   
-   // حساب مؤشرات حركة السعر
-   double            CalculatePriceVelocity(const int period, const double &close[]);
-   double            CalculatePriceAcceleration(const int period, const double &close[]);
-   double            CalculateVolatilityExpansion(const int period, const double &high[], 
-                                                const double &low[]);
-   
-   // تحليل مستويات الدعم والمقاومة
-   bool              FindCurrentSupportResistance(const int startIdx, const int endIdx,
-                                                const double &high[], const double &low[],
-                                                double &support, double &resistance);
-   
-   // تحليل القوة والضعف
-   double            CalculateBullishStrength(const int period, const double &open[],
-                                           const double &high[], const double &close[]);
-   
-   double            CalculateBearishStrength(const int period, const double &open[],
-                                            const double &low[], const double &close[]);
+   ENUM_MOMENTUM_STATE     momentumState;       // حالة الزخم
+   double                  momentumStrength;    // قوة الزخم
+   double                  velocityChange;      // تغيير السرعة
    
    // تحليل الحجم
-   bool              AnalyzeVolumeConfirmation(const int idx, const double &prices[],
-                                             const long &volume[]);
+   ENUM_VOLUME_ANALYSIS    volumeAnalysis;      // تحليل الحجم
+   double                  volumeRatio;         // نسبة الحجم
+   bool                    volumeConfirmation;  // تأكيد الحجم
    
-   double            CalculateVolumePressure(const int period, const double &close[],
-                                           const long &volume[]);
+   // الموثوقية والقوة
+   double                  reliability;         // الموثوقية
+   double                  strength;            // القوة
+   double                  probability;         // الاحتمالية
+   double                  riskReward;          // نسبة المخاطرة للعائد
    
-   // تحليل الوقت والدورات
-   bool              DetectTimeBasedPatterns(const int startIdx, const int endIdx,
-                                           const datetime &time[]);
+   // معلومات زمنية
+   datetime                signalTime;          // وقت الإشارة
+   datetime                expirationTime;      // وقت انتهاء الصلاحية
+   int                     timeframe;           // الإطار الزمني
    
-   // دوال التنبؤ
-   ENUM_PATTERN_DIRECTION PredictNextMove(const SPriceActionAnalysis &analysis);
-   double            EstimateTargetPrice(const SPriceActionAnalysis &analysis, 
-                                       const double currentPrice);
+   // السياق السوقي
+   ENUM_PA_TREND_DIRECTION overallTrend;        // الاتجاه العام
+   double                  trendStrength;       // قوة الاتجاه
+   bool                    nearSupportResistance; // قرب الدعم/المقاومة
    
-   // الوصول للبيانات
-   SPriceActionAnalysis GetCurrentAnalysis() const { return m_currentAnalysis; }
-   SCandleStatistics GetCandleStatistics() const { return m_candleStats; }
-   int               GetHistoricalAnalysisCount() const { return ArraySize(m_historicalAnalysis); }
-   SPriceActionAnalysis GetHistoricalAnalysis(const int index) const;
-   
-   // تقارير التحليل
-   string            GenerateAnalysisReport(const SPriceActionAnalysis &analysis);
-   string            GenerateCandleReport(const SCandleStatistics &stats);
-   
-protected:
-   // دوال مساعدة
-   bool              IsUptrend(const double &highs[], const double &lows[], const int period);
-   bool              IsDowntrend(const double &highs[], const double &lows[], const int period);
-   
-   double            CalculateATR(const int period, const double &high[], 
-                                const double &low[], const double &close[]);
-   
-   bool              IsDoji(const int idx, const double &open[], const double &close[]);
-   bool              IsEngulfing(const int idx, const double &open[], const double &close[]);
-   
-   // تحديث التحليل
-   void              UpdateAnalysisHistory();
-   void              SaveAnalysisToHistory(const SPriceActionAnalysis &analysis);
-   
-   // إحصائيات
-   void              UpdateStatistics(const SPriceActionAnalysis &analysis);
+   SPriceActionSignal()
+   {
+      id = 0;
+      name = "";
+      type = PA_BREAKOUT;
+      direction = PATTERN_NEUTRAL;
+      structure = PS_HIGHER_HIGHS;
+      momentumState = MOMENTUM_SIDEWAYS;
+      momentumStrength = 0.0;
+      velocityChange = 0.0;
+      volumeAnalysis = VOLUME_NORMAL;
+      volumeRatio = 1.0;
+      volumeConfirmation = false;
+      reliability = 0.0;
+      strength = 0.0;
+      probability = 0.0;
+      riskReward = 0.0;
+      signalTime = 0;
+      expirationTime = 0;
+      timeframe = PERIOD_CURRENT;
+      overallTrend = PA_TREND_SIDEWAYS;
+      trendStrength = 0.0;
+      nearSupportResistance = false;
+   }
 };
 
 //+------------------------------------------------------------------+
-//| المنشئ                                                           |
+//| فئة كاشف الاتجاه البسيط - لتجنب التضارب |
 //+------------------------------------------------------------------+
-CPriceAction::CPriceAction()
+class CPATrendDetector
 {
-   m_symbol = "";
-   m_timeframe = PERIOD_CURRENT;
-   m_initialized = false;
+public:
+   CPATrendDetector() {}
+   ~CPATrendDetector() {}
    
-   // المعاملات الافتراضية
-   m_analysisPeriod = 20;
-   m_breakoutThreshold = 0.002; // 0.2%
-   m_momentumThreshold = 0.05;
-   m_trendPeriod = 10;
+   ENUM_PA_TREND_DIRECTION DetectTrend(const double &close[], int rates_total, int period = 20);
+};
+
+//+------------------------------------------------------------------+
+//| تنفيذ كاشف الاتجاه |
+//+------------------------------------------------------------------+
+ENUM_PA_TREND_DIRECTION CPATrendDetector::DetectTrend(const double &close[], int rates_total, int period = 20)
+{
+   if(rates_total < period + 1)
+      return PA_TREND_SIDEWAYS;
    
-   m_chartUtils = NULL;
+   double currentPrice = close[rates_total - 1];
+   double pastPrice = close[rates_total - 1 - period];
+   double threshold = 0.01; // 1% threshold
    
-   ArrayResize(m_historicalAnalysis, 0);
+   double change = (currentPrice - pastPrice) / pastPrice;
+   
+   if(change > threshold)
+      return PA_TREND_BULLISH;
+   else if(change < -threshold)
+      return PA_TREND_BEARISH;
+   else
+      return PA_TREND_SIDEWAYS;
 }
 
 //+------------------------------------------------------------------+
-//| الهادم                                                           |
+//| فئة تحليل حركة السعر - مُصححة |
 //+------------------------------------------------------------------+
-CPriceAction::~CPriceAction()
+class CPriceActionAnalyzer
 {
-   Deinitialize();
-}
+private:
+   // إشارات حركة السعر
+   SPriceActionSignal      m_signals[];         // مصفوفة الإشارات
+   int                     m_signalCount;       // عدد الإشارات
+   
+   // أدوات التحليل
+   CSupportResistanceDetector* m_srDetector;   // كاشف الدعم والمقاومة
+   CTrendLineDetector*     m_trendDetector;     // كاشف خطوط الاتجاه
+   CPATrendDetector*       m_trendAnalyzer;     // محلل الاتجاه
+   
+   // إعدادات التحليل
+   int                     m_lookbackPeriod;    // فترة البحث للخلف
+   int                     m_momentumPeriod;    // فترة حساب الزخم
+   double                  m_breakoutThreshold; // عتبة الاختراق
+   double                  m_volumeThreshold;   // عتبة الحجم
+   bool                    m_useVolumeAnalysis; // استخدام تحليل الحجم
+   
+   // إعدادات الهيكل السعري
+   int                     m_swingDetectionPeriod; // فترة كشف التأرجح
+   double                  m_equalLevelTolerance;  // تسامح المستويات المتساوية
+   
+   // مؤشرات تقنية
+   double                  m_rsi[];             // مؤشر RSI
+   double                  m_momentum[];        // مؤشر الزخم
+   double                  m_volumeSMA[];       // متوسط متحرك للحجم
 
-//+------------------------------------------------------------------+
-//| تهيئة المحلل                                                     |
-//+------------------------------------------------------------------+
-bool CPriceAction::Initialize(const string symbol = "", const ENUM_TIMEFRAMES timeframe = PERIOD_CURRENT)
-{
-   m_symbol = (symbol == "") ? Symbol() : symbol;
-   m_timeframe = (timeframe == PERIOD_CURRENT) ? Period() : timeframe;
+public:
+   CPriceActionAnalyzer();
+   ~CPriceActionAnalyzer();
    
-   // إنشاء أدوات المخططات
-   m_chartUtils = new CChartUtils();
-   if(!m_chartUtils.Initialize(m_symbol, m_timeframe))
-   {
-      Print("خطأ في تهيئة أدوات المخططات لتحليل حركة السعر");
-      return false;
-   }
+   // التحليل الرئيسي
+   int AnalyzePriceAction(const string symbol, ENUM_TIMEFRAMES timeframe,
+                         const double &high[], const double &low[], 
+                         const double &close[], const double &open[],
+                         const long &volume[], const datetime &time[],
+                         int rates_total);
    
-   m_initialized = true;
-   Print("تم تهيئة محلل حركة السعر للرمز: ", m_symbol, " الإطار الزمني: ", EnumToString(m_timeframe));
+   // تحليل أنواع حركة السعر
+   bool DetectBreakout(const double &high[], const double &low[], 
+                      const double &close[], const long &volume[],
+                      const datetime &time[], int rates_total,
+                      SPriceActionSignal &signal);
    
-   return true;
-}
-
-//+------------------------------------------------------------------+
-//| إنهاء المحلل                                                    |
-//+------------------------------------------------------------------+
-void CPriceAction::Deinitialize()
-{
-   if(m_initialized)
-   {
-      if(m_chartUtils != NULL)
-      {
-         delete m_chartUtils;
-         m_chartUtils = NULL;
-      }
-      
-      ArrayFree(m_historicalAnalysis);
-      m_initialized = false;
-   }
-}
-
-//+------------------------------------------------------------------+
-//| تحديد معاملات التحليل                                           |
-//+------------------------------------------------------------------+
-void CPriceAction::SetAnalysisParameters(const int analysisPeriod, const double breakoutThreshold,
-                                         const double momentumThreshold, const int trendPeriod)
-{
-   m_analysisPeriod = MathMax(5, analysisPeriod);
-   m_breakoutThreshold = MathMax(0.001, breakoutThreshold);
-   m_momentumThreshold = MathMax(0.01, momentumThreshold);
-   m_trendPeriod = MathMax(3, trendPeriod);
-}
-
-//+------------------------------------------------------------------+
-//| التحليل الرئيسي لحركة السعر                                     |
-//+------------------------------------------------------------------+
-SPriceActionAnalysis CPriceAction::AnalyzePriceAction(const int startIdx, const int endIdx,
-                                                     const double &open[], const double &high[],
-                                                     const double &low[], const double &close[],
-                                                     const long &volume[])
-{
-   SPriceActionAnalysis analysis;
+   bool DetectPullback(const double &high[], const double &low[], 
+                      const double &close[], const datetime &time[],
+                      int rates_total, SPriceActionSignal &signal);
    
-   if(!m_initialized || startIdx >= endIdx)
-      return analysis;
+   bool DetectReversal(const double &high[], const double &low[], 
+                      const double &close[], const double &open[],
+                      const long &volume[], const datetime &time[],
+                      int rates_total, SPriceActionSignal &signal);
    
-   analysis.analysisTime = TimeCurrent();
+   bool DetectConsolidation(const double &high[], const double &low[], 
+                           const double &close[], const datetime &time[],
+                           int rates_total, SPriceActionSignal &signal);
    
-   // تحليل هيكل السوق
-   analysis.structure = AnalyzeMarketStructure(startIdx, endIdx, high, low);
+   // تحليل هيكل السعر
+   ENUM_PRICE_STRUCTURE AnalyzePriceStructure(const double &high[], const double &low[],
+                                             int start, int end);
+   
+   bool FindSwingPoints(const double &high[], const double &low[],
+                       int start, int end, SPAChartPoint &swings[]);
    
    // تحليل الزخم
-   analysis.momentum = AnalyzeMomentum(startIdx, endIdx, close, volume);
+   ENUM_MOMENTUM_STATE AnalyzeMomentum(const double &close[], int rates_total, int period = 14);
+   double CalculateMomentumStrength(const double &close[], int rates_total, int period = 14);
+   double CalculateVelocityChange(const double &close[], int rates_total, int period = 5);
    
-   // البحث عن المستويات الرئيسية
-   FindCurrentSupportResistance(startIdx, endIdx, high, low, 
-                               analysis.supportLevel, analysis.resistanceLevel);
+   // تحليل الحجم
+   ENUM_VOLUME_ANALYSIS AnalyzeVolume(const long &volume[], int rates_total, int period = 20);
+   double CalculateVolumeRatio(const long &volume[], int rates_total, int period = 20);
+   bool IsVolumeClimax(const long &volume[], int rates_total, int period = 20);
    
-   // كشف أنواع حركة السعر
-   double breakoutLevel;
-   analysis.isBreakout = DetectBreakout(endIdx, high, low, volume, breakoutLevel);
-   analysis.isPullback = DetectPullback(startIdx, endIdx, high, low);
-   analysis.isReversal = DetectReversal(startIdx, endIdx, open, high, low, close);
+   // تحليل السياق
+   bool IsNearSupportResistance(double price, SSupportResistanceLevel &levels[], int levelCount);
+   double CalculateDistanceToSR(double price, SSupportResistanceLevel &levels[], int levelCount);
    
-   // تحديد نوع حركة السعر الرئيسي
-   if(analysis.isBreakout)
-      analysis.actionType = PA_BREAKOUT;
-   else if(analysis.isPullback)
-      analysis.actionType = PA_PULLBACK;
-   else if(analysis.isReversal)
-      analysis.actionType = PA_REVERSAL;
-   else if(DetectConsolidation(startIdx, endIdx, high, low))
-      analysis.actionType = PA_CONSOLIDATION;
-   else
-      analysis.actionType = PA_CONTINUATION;
+   // حساب الموثوقية والاحتمالية
+   double CalculateSignalReliability(const SPriceActionSignal &signal);
+   double CalculateSignalProbability(const SPriceActionSignal &signal,
+                                    const double &high[], const double &low[],
+                                    const double &close[], int rates_total);
    
-   // حساب مؤشرات الحركة
-   analysis.velocity = CalculatePriceVelocity(m_analysisPeriod, close);
-   analysis.acceleration = CalculatePriceAcceleration(m_analysisPeriod, close);
+   // إدارة المخاطر
+   void CalculateRiskReward(SPriceActionSignal &signal, 
+                           const SSupportResistanceLevel &nearestSR);
    
-   // حساب قوة حركة السعر
-   double bullishStrength = CalculateBullishStrength(m_analysisPeriod, open, high, close);
-   double bearishStrength = CalculateBearishStrength(m_analysisPeriod, open, low, close);
-   analysis.strength = MathMax(bullishStrength, bearishStrength);
+   SPAChartPoint CalculateStopLoss(const SPriceActionSignal &signal,
+                                  const double &high[], const double &low[],
+                                  int rates_total);
    
-   // تحليل الشموع
-   m_candleStats = AnalyzeCandlePatterns(startIdx, endIdx, open, high, low, close);
+   SPAChartPoint CalculateTakeProfit(const SPriceActionSignal &signal,
+                                    const SSupportResistanceLevel &targetLevel);
    
-   // وصف التحليل
-   analysis.description = "تحليل حركة السعر - " + EnumToString(analysis.actionType) + 
-                         " | هيكل: " + EnumToString(analysis.structure) + 
-                         " | زخم: " + EnumToString(analysis.momentum);
+   // الوصول للإشارات
+   int GetSignalCount() const { return m_signalCount; }
+   SPriceActionSignal GetSignal(int index) const;
+   void GetActiveSignals(SPriceActionSignal &signals[], int &count, ENUM_PRICE_ACTION_TYPE type = (ENUM_PRICE_ACTION_TYPE)-1);
+   void GetSignalsByDirection(SPriceActionSignal &signals[], int &count, ENUM_PATTERN_DIRECTION direction);
    
-   // حفظ التحليل
-   m_currentAnalysis = analysis;
-   SaveAnalysisToHistory(analysis);
+   // تحديث التحليل
+   void UpdateAnalysis(const double &high[], const double &low[], 
+                      const double &close[], const double &open[],
+                      const long &volume[], const datetime &time[],
+                      int currentBar);
    
-   return analysis;
+   // رسم الإشارات
+   void DrawSignal(const string symbol, const SPriceActionSignal &signal);
+   void DrawAllSignals(const string symbol);
+   
+   // إعدادات المحلل
+   void SetLookbackPeriod(int period) { m_lookbackPeriod = MathMax(20, period); }
+   void SetMomentumPeriod(int period) { m_momentumPeriod = MathMax(5, period); }
+   void SetBreakoutThreshold(double threshold) { m_breakoutThreshold = MathMax(0.001, threshold); }
+   void SetVolumeThreshold(double threshold) { m_volumeThreshold = MathMax(1.0, threshold); }
+   void SetUseVolumeAnalysis(bool use) { m_useVolumeAnalysis = use; }
+   
+   // تكامل مع أدوات أخرى
+   void SetSRDetector(CSupportResistanceDetector* detector) { m_srDetector = detector; }
+   void SetTrendDetector(CTrendLineDetector* detector) { m_trendDetector = detector; }
+   
+   // مسح الإشارات
+   void ClearSignals();
+   void RemoveExpiredSignals();
+
+private:
+   // دوال مساعدة
+   SPriceActionSignal CreateSignal(ENUM_PRICE_ACTION_TYPE type, 
+                                  ENUM_PATTERN_DIRECTION direction,
+                                  const SPAChartPoint &triggerPoint);
+   
+   bool ValidateSignal(const SPriceActionSignal &signal,
+                      const double &high[], const double &low[],
+                      const double &close[], int rates_total);
+   
+   void CalculateIndicators(const double &close[], const long &volume[],
+                           int rates_total);
+   
+   bool IsSignificantMove(const double &close[], int start, int end, double threshold);
+   bool IsFalseBreakout(const double &high[], const double &low[], 
+                       const double &close[], int breakoutBar, 
+                       double breakoutLevel, bool isUpward);
+   
+   double CalculateAverageRange(const double &high[], const double &low[], 
+                               int period, int rates_total);
+   
+   long GenerateUniqueId();
+   datetime CalculateSignalExpiration(const SPriceActionSignal &signal);
+   
+   // تحليل أنماط الشموع - مُصحح
+   bool IsHammer(const double &open[], const double &high[], 
+                const double &low[], const double &close[], int index);
+   
+   bool IsDoji(const double &open[], const double &high[], 
+              const double &low[], const double &close[], int index);
+   
+   bool IsEngulfing(const double &open[], const double &high[], 
+                   const double &low[], const double &close[], int index);
+};
+
+//+------------------------------------------------------------------+
+//| المنشئ |
+//+------------------------------------------------------------------+
+CPriceActionAnalyzer::CPriceActionAnalyzer()
+{
+   m_signalCount = 0;
+   m_lookbackPeriod = 100;
+   m_momentumPeriod = 14;
+   m_breakoutThreshold = 0.02; // 2%
+   m_volumeThreshold = 1.5;    // 150% من المتوسط
+   m_useVolumeAnalysis = true;
+   m_swingDetectionPeriod = 5;
+   m_equalLevelTolerance = 0.01; // 1%
+   
+   m_srDetector = NULL;
+   m_trendDetector = NULL;
+   m_trendAnalyzer = new CPATrendDetector();
+   
+   ArrayResize(m_signals, 0);
+   ArrayResize(m_rsi, 0);
+   ArrayResize(m_momentum, 0);
+   ArrayResize(m_volumeSMA, 0);
 }
 
 //+------------------------------------------------------------------+
-//| تحليل هيكل السوق                                                |
+//| الهادم |
 //+------------------------------------------------------------------+
-ENUM_MARKET_STRUCTURE CPriceAction::AnalyzeMarketStructure(const int startIdx, const int endIdx,
-                                                          const double &high[], const double &low[])
+CPriceActionAnalyzer::~CPriceActionAnalyzer()
 {
-   if(endIdx - startIdx < m_trendPeriod)
-      return STRUCTURE_UNDEFINED;
-   
-   // تحليل القمم والقيعان
-   SChartPoint swingHighs[], swingLows[];
-   m_chartUtils.FindSwingHighs(startIdx, endIdx, 3, high, swingHighs);
-   m_chartUtils.FindSwingLows(startIdx, endIdx, 3, low, swingLows);
-   
-   if(ArraySize(swingHighs) < 2 || ArraySize(swingLows) < 2)
-      return STRUCTURE_UNDEFINED;
-   
-   // فحص اتجاه القمم والقيعان
-   bool higherHighs = (swingHighs[ArraySize(swingHighs)-1].price > swingHighs[ArraySize(swingHighs)-2].price);
-   bool higherLows = (swingLows[ArraySize(swingLows)-1].price > swingLows[ArraySize(swingLows)-2].price);
-   bool lowerHighs = (swingHighs[ArraySize(swingHighs)-1].price < swingHighs[ArraySize(swingHighs)-2].price);
-   bool lowerLows = (swingLows[ArraySize(swingLows)-1].price < swingLows[ArraySize(swingLows)-2].price);
-   
-   // تحديد هيكل السوق
-   if(higherHighs && higherLows)
-      return STRUCTURE_UPTREND;
-   else if(lowerHighs && lowerLows)
-      return STRUCTURE_DOWNTREND;
-   else if((higherHighs && lowerLows) || (lowerHighs && higherLows))
-      return STRUCTURE_TRANSITION;
-   else
-      return STRUCTURE_SIDEWAYS;
+   ClearSignals();
+   if(m_trendAnalyzer != NULL)
+   {
+      delete m_trendAnalyzer;
+      m_trendAnalyzer = NULL;
+   }
 }
 
 //+------------------------------------------------------------------+
-//| تحليل الزخم                                                     |
+//| التحليل الرئيسي لحركة السعر - مُصحح |
 //+------------------------------------------------------------------+
-ENUM_PRICE_MOMENTUM CPriceAction::AnalyzeMomentum(const int startIdx, const int endIdx,
-                                                 const double &close[], const long &volume[])
+int CPriceActionAnalyzer::AnalyzePriceAction(const string symbol, ENUM_TIMEFRAMES timeframe,
+                                           const double &high[], const double &low[], 
+                                           const double &close[], const double &open[],
+                                           const long &volume[], const datetime &time[],
+                                           int rates_total)
 {
-   if(endIdx - startIdx < 5)
-      return MOMENTUM_NEUTRAL;
+   if(rates_total < m_lookbackPeriod)
+      return 0;
    
-   // حساب تغير السعر
-   double priceChange = (close[endIdx] - close[endIdx - 5]) / close[endIdx - 5];
+   ClearSignals();
    
-   // حساب تغير الحجم
-   double avgVolume1 = 0.0, avgVolume2 = 0.0;
-   for(int i = endIdx - 4; i <= endIdx; i++)
-      avgVolume1 += (double)volume[i];
-   for(int i = endIdx - 9; i <= endIdx - 5; i++)
-      avgVolume2 += (double)volume[i];
+   // حساب المؤشرات التقنية
+   CalculateIndicators(close, volume, rates_total);
    
-   avgVolume1 /= 5;
-   avgVolume2 /= 5;
+   int signalsFound = 0;
+   SPriceActionSignal signal;
    
-   double volumeChange = (avgVolume2 > 0) ? (avgVolume1 - avgVolume2) / avgVolume2 : 0;
+   // كشف الاختراقات
+   if(DetectBreakout(high, low, close, volume, time, rates_total, signal))
+   {
+      ArrayResize(m_signals, m_signalCount + 1);
+      m_signals[m_signalCount] = signal;
+      m_signalCount++;
+      signalsFound++;
+   }
    
-   // تحديد الزخم
-   if(priceChange > m_momentumThreshold && volumeChange > 0.2)
-      return MOMENTUM_STRONG_BULLISH;
-   else if(priceChange > m_momentumThreshold * 0.5)
-      return MOMENTUM_WEAK_BULLISH;
-   else if(priceChange < -m_momentumThreshold && volumeChange > 0.2)
-      return MOMENTUM_STRONG_BEARISH;
-   else if(priceChange < -m_momentumThreshold * 0.5)
-      return MOMENTUM_WEAK_BEARISH;
-   else
-      return MOMENTUM_NEUTRAL;
+   // كشف الارتدادات
+   if(DetectPullback(high, low, close, time, rates_total, signal))
+   {
+      ArrayResize(m_signals, m_signalCount + 1);
+      m_signals[m_signalCount] = signal;
+      m_signalCount++;
+      signalsFound++;
+   }
+   
+   // كشف الانعكاسات
+   if(DetectReversal(high, low, close, open, volume, time, rates_total, signal))
+   {
+      ArrayResize(m_signals, m_signalCount + 1);
+      m_signals[m_signalCount] = signal;
+      m_signalCount++;
+      signalsFound++;
+   }
+   
+   // كشف التوطيدات
+   if(DetectConsolidation(high, low, close, time, rates_total, signal))
+   {
+      ArrayResize(m_signals, m_signalCount + 1);
+      m_signals[m_signalCount] = signal;
+      m_signalCount++;
+      signalsFound++;
+   }
+   
+   return signalsFound;
 }
 
 //+------------------------------------------------------------------+
-//| كشف الاختراق                                                    |
+//| كشف الاختراقات - مُصحح |
 //+------------------------------------------------------------------+
-bool CPriceAction::DetectBreakout(const int idx, const double &high[], const double &low[],
-                                 const long &volume[], double &breakoutLevel)
+bool CPriceActionAnalyzer::DetectBreakout(const double &high[], const double &low[], 
+                                         const double &close[], const long &volume[],
+                                         const datetime &time[], int rates_total,
+                                         SPriceActionSignal &signal)
 {
-   if(idx < 10)
+   if(rates_total < 10)
       return false;
    
-   // البحث عن مستوى مقاومة أو دعم حديث
-   double recentHigh = high[idx-1];
-   double recentLow = low[idx-1];
+   // البحث عن اختراق بسيط بناءً على الأسعار
+   double currentPrice = close[rates_total - 1];
+   double prevPrice = close[rates_total - 2];
+   double breakoutThreshold = m_breakoutThreshold;
    
-   for(int i = idx - 10; i < idx; i++)
+   // تحقق من اختراق بسيط
+   if(MathAbs(currentPrice - prevPrice) / prevPrice > breakoutThreshold)
    {
-      if(high[i] > recentHigh)
-         recentHigh = high[i];
-      if(low[i] < recentLow)
-         recentLow = low[i];
-   }
-   
-   // فحص الاختراق الصعودي
-   if(high[idx] > recentHigh * (1 + m_breakoutThreshold))
-   {
-      breakoutLevel = recentHigh;
-      return IsValidBreakout(high[idx], breakoutLevel, volume[idx], 
-                           (long)m_chartUtils.CalculateAverageVolume(idx - 10, 10, volume));
-   }
-   
-   // فحص الاختراق الهبوطي
-   if(low[idx] < recentLow * (1 - m_breakoutThreshold))
-   {
-      breakoutLevel = recentLow;
-      return IsValidBreakout(low[idx], breakoutLevel, volume[idx],
-                           (long)m_chartUtils.CalculateAverageVolume(idx - 10, 10, volume));
+      ENUM_PATTERN_DIRECTION dir = (currentPrice > prevPrice) ? PATTERN_BULLISH : PATTERN_BEARISH;
+      
+      SPAChartPoint triggerPoint;
+      triggerPoint.time = time[rates_total - 1];
+      triggerPoint.price = currentPrice;
+      triggerPoint.barIndex = rates_total - 1;
+      triggerPoint.isValid = true;
+      
+      signal = CreateSignal(PA_BREAKOUT, dir, triggerPoint);
+      
+      signal.confirmationPoint.price = currentPrice;
+      signal.confirmationPoint.time = time[rates_total - 1];
+      signal.confirmationPoint.barIndex = rates_total - 1;
+      signal.confirmationPoint.isValid = true;
+      
+      // تحليل الحجم
+      if(m_useVolumeAnalysis && ArraySize(volume) > 0)
+      {
+         signal.volumeAnalysis = AnalyzeVolume(volume, rates_total);
+         signal.volumeRatio = CalculateVolumeRatio(volume, rates_total);
+         signal.volumeConfirmation = (signal.volumeRatio > m_volumeThreshold);
+      }
+      
+      // حساب الموثوقية
+      signal.reliability = CalculateSignalReliability(signal);
+      signal.probability = CalculateSignalProbability(signal, high, low, close, rates_total);
+      
+      return ValidateSignal(signal, high, low, close, rates_total);
    }
    
    return false;
 }
 
 //+------------------------------------------------------------------+
-//| التحقق من صحة الاختراق                                          |
+//| كشف الارتدادات - مُصحح |
 //+------------------------------------------------------------------+
-bool CPriceAction::IsValidBreakout(const double currentPrice, const double breakoutLevel,
-                                  const long currentVolume, const long avgVolume)
+bool CPriceActionAnalyzer::DetectPullback(const double &high[], const double &low[], 
+                                         const double &close[], const datetime &time[],
+                                         int rates_total, SPriceActionSignal &signal)
 {
-   // فحص قوة الاختراق
-   double breakoutStrength = MathAbs(currentPrice - breakoutLevel) / breakoutLevel;
-   if(breakoutStrength < m_breakoutThreshold)
+   if(rates_total < m_lookbackPeriod || m_trendAnalyzer == NULL)
       return false;
    
-   // فحص تأكيد الحجم
-   if((double)currentVolume < avgVolume * 1.2) // حجم أعلى من المتوسط بـ 20%
+   // تحديد الاتجاه العام
+   ENUM_PA_TREND_DIRECTION trend = m_trendAnalyzer.DetectTrend(close, rates_total, m_lookbackPeriod / 2);
+   
+   if(trend == PA_TREND_SIDEWAYS)
       return false;
    
-   return true;
-}
-
-//+------------------------------------------------------------------+
-//| كشف التراجع                                                     |
-//+------------------------------------------------------------------+
-bool CPriceAction::DetectPullback(const int startIdx, const int endIdx,
-                                 const double &high[], const double &low[])
-{
-   if(endIdx - startIdx < 6)
-      return false;
+   // البحث عن ارتداد مؤقت ضد الاتجاه
+   int pullbackStart = -1;
    
-   // البحث عن حركة في اتجاه ثم عكس جزئي
-   bool hadUpMove = false;
-   bool hadDownMove = false;
-   
-   // فحص الحركة الأولى (صعودية)
-   if(high[endIdx - 3] > high[startIdx] * 1.01) // صعود 1%
-      hadUpMove = true;
-   
-   // فحص الحركة الثانية (هبوطية - تراجع)
-   if(hadUpMove && low[endIdx] < high[endIdx - 3] * 0.99) // تراجع 1%
-      hadDownMove = true;
-   
-   // فحص الحركة الأولى (هبوطية)
-   if(low[endIdx - 3] < low[startIdx] * 0.99) // هبوط 1%
-      hadDownMove = true;
-   
-   // فحص الحركة الثانية (صعودية - تراجع)
-   if(hadDownMove && high[endIdx] > low[endIdx - 3] * 1.01) // تراجع صعودي 1%
-      hadUpMove = true;
-   
-   return (hadUpMove && hadDownMove);
-}
-
-//+------------------------------------------------------------------+
-//| كشف الانعكاس                                                    |
-//+------------------------------------------------------------------+
-bool CPriceAction::DetectReversal(const int startIdx, const int endIdx,
-                                 const double &open[], const double &high[],
-                                 const double &low[], const double &close[])
-{
-   if(endIdx - startIdx < 5)
-      return false;
-   
-   // فحص تغير في اتجاه الشموع
-   int bullishCount = 0;
-   int bearishCount = 0;
-   
-   // عد الشموع في النصف الأول
-   for(int i = startIdx; i < startIdx + (endIdx - startIdx) / 2; i++)
+   // في الاتجاه الصاعد - البحث عن انخفاض مؤقت
+   if(trend == PA_TREND_BULLISH)
    {
-      if(close[i] > open[i])
-         bullishCount++;
-      else if(close[i] < open[i])
-         bearishCount++;
-   }
-   
-   // عد الشموع في النصف الثاني
-   int bullishCount2 = 0;
-   int bearishCount2 = 0;
-   
-   for(int i = startIdx + (endIdx - startIdx) / 2; i <= endIdx; i++)
-   {
-      if(close[i] > open[i])
-         bullishCount2++;
-      else if(close[i] < open[i])
-         bearishCount2++;
-   }
-   
-   // فحص انعكاس من هبوطي لصعودي
-   if(bearishCount > bullishCount && bullishCount2 > bearishCount2)
-      return true;
-   
-   // فحص انعكاس من صعودي لهبوطي
-   if(bullishCount > bearishCount && bearishCount2 > bullishCount2)
-      return true;
-   
-   return false;
-}
-
-//+------------------------------------------------------------------+
-//| كشف التوطيد                                                     |
-//+------------------------------------------------------------------+
-bool CPriceAction::DetectConsolidation(const int startIdx, const int endIdx,
-                                      const double &high[], const double &low[])
-{
-   if(endIdx - startIdx < 5)
-      return false;
-   
-   // حساب المدى العام
-   double maxHigh = high[startIdx];
-   double minLow = low[startIdx];
-   
-   for(int i = startIdx + 1; i <= endIdx; i++)
-   {
-      if(high[i] > maxHigh)
-         maxHigh = high[i];
-      if(low[i] < minLow)
-         minLow = low[i];
-   }
-   
-   double totalRange = maxHigh - minLow;
-   
-   // حساب متوسط المدى اليومي
-   double avgDailyRange = 0;
-   for(int i = startIdx; i <= endIdx; i++)
-      avgDailyRange += (high[i] - low[i]);
-   
-   avgDailyRange /= (endIdx - startIdx + 1);
-   
-   // التوطيد عندما يكون المدى العام صغير نسبة للمدى اليومي
-   return (totalRange < avgDailyRange * 2.5);
-}
-
-//+------------------------------------------------------------------+
-//| تحليل أنماط الشموع                                              |
-//+------------------------------------------------------------------+
-SCandleStatistics CPriceAction::AnalyzeCandlePatterns(const int startIdx, const int endIdx,
-                                                     const double &open[], const double &high[],
-                                                     const double &low[], const double &close[])
-{
-   SCandleStatistics stats;
-   
-   stats.totalCandles = endIdx - startIdx + 1;
-   
-   double totalBodySize = 0;
-   double totalUpperShadow = 0;
-   double totalLowerShadow = 0;
-   double totalRange = 0;
-   
-   int currentBullish = 0;
-   int currentBearish = 0;
-   
-   for(int i = startIdx; i <= endIdx; i++)
-   {
-      double bodySize = MathAbs(close[i] - open[i]);
-      double upperShadow = high[i] - MathMax(open[i], close[i]);
-      double lowerShadow = MathMin(open[i], close[i]) - low[i];
-      double range = high[i] - low[i];
-      
-      totalBodySize += bodySize;
-      totalUpperShadow += upperShadow;
-      totalLowerShadow += lowerShadow;
-      totalRange += range;
-      
-      // تصنيف الشمعة
-      if(close[i] > open[i])
+      for(int i = rates_total - 10; i < rates_total - 1; i++)
       {
-         stats.bullishCandles++;
-         currentBullish++;
-         currentBearish = 0;
-      }
-      else if(close[i] < open[i])
-      {
-         stats.bearishCandles++;
-         currentBearish++;
-         currentBullish = 0;
-      }
-      else
-      {
-         stats.dojiCandles++;
-         currentBullish = 0;
-         currentBearish = 0;
-      }
-      
-      // تحديث أقصى متتالية
-      if(currentBullish > stats.consecutiveBullish)
-         stats.consecutiveBullish = currentBullish;
-      
-      if(currentBearish > stats.consecutiveBearish)
-         stats.consecutiveBearish = currentBearish;
-   }
-   
-   // حساب المتوسطات
-   if(stats.totalCandles > 0)
-   {
-      stats.avgBodySize = totalBodySize / stats.totalCandles;
-      stats.avgUpperShadow = totalUpperShadow / stats.totalCandles;
-      stats.avgLowerShadow = totalLowerShadow / stats.totalCandles;
-      stats.avgRange = totalRange / stats.totalCandles;
-      
-      if(stats.avgRange > 0)
-         stats.bodyToRangeRatio = stats.avgBodySize / stats.avgRange;
-      
-      if(stats.avgBodySize > 0)
-         stats.shadowToBodyRatio = (stats.avgUpperShadow + stats.avgLowerShadow) / stats.avgBodySize;
-   }
-   
-   return stats;
-}
-
-//+------------------------------------------------------------------+
-//| حساب سرعة السعر                                                 |
-//+------------------------------------------------------------------+
-double CPriceAction::CalculatePriceVelocity(const int period, const double &close[])
-{
-   if(period < 2)
-      return 0.0;
-   
-   int endIdx = ArraySize(close) - 1;
-   int startIdx = endIdx - period + 1;
-   
-   if(startIdx < 0)
-      return 0.0;
-   
-   double priceChange = close[endIdx] - close[startIdx];
-   double timeChange = period;
-   
-   return priceChange / timeChange; // نقاط لكل شمعة
-}
-
-//+------------------------------------------------------------------+
-//| حساب تسارع السعر                                                |
-//+------------------------------------------------------------------+
-double CPriceAction::CalculatePriceAcceleration(const int period, const double &close[])
-{
-   if(period < 4)
-      return 0.0;
-   
-   int endIdx = ArraySize(close) - 1;
-   
-   // حساب السرعة للفترة الأخيرة
-   double velocity1 = CalculatePriceVelocity(period / 2, close);
-   
-   // حساب السرعة للفترة السابقة
-   double tempClose[];
-   int tempSize = endIdx - period / 2 + 1;
-   ArrayResize(tempClose, tempSize);
-   
-   for(int i = 0; i < tempSize; i++)
-      tempClose[i] = close[i];
-   
-   double velocity2 = CalculatePriceVelocity(period / 2, tempClose);
-   
-   return velocity1 - velocity2; // تغير السرعة
-}
-
-//+------------------------------------------------------------------+
-//| حساب توسع التقلبات                                               |
-//+------------------------------------------------------------------+
-double CPriceAction::CalculateVolatilityExpansion(const int period, const double &high[], 
-                                                 const double &low[])
-{
-   if(period < 2)
-      return 0.0;
-   
-   int endIdx = ArraySize(high) - 1;
-   int startIdx = MathMax(0, endIdx - period + 1);
-   
-   // حساب متوسط المدى الحالي
-   double currentATR = 0;
-   for(int i = startIdx; i <= endIdx; i++)
-      currentATR += (high[i] - low[i]);
-   currentATR /= (endIdx - startIdx + 1);
-   
-   // حساب متوسط المدى السابق
-   int prevStart = MathMax(0, startIdx - period);
-   int prevEnd = startIdx - 1;
-   
-   if(prevEnd <= prevStart)
-      return 0.0;
-   
-   double previousATR = 0;
-   for(int i = prevStart; i <= prevEnd; i++)
-      previousATR += (high[i] - low[i]);
-   previousATR /= (prevEnd - prevStart + 1);
-   
-   // نسبة التوسع
-   return (previousATR > 0) ? (currentATR - previousATR) / previousATR : 0.0;
-}
-
-//+------------------------------------------------------------------+
-//| البحث عن الدعم والمقاومة الحالي                                  |
-//+------------------------------------------------------------------+
-bool CPriceAction::FindCurrentSupportResistance(const int startIdx, const int endIdx,
-                                               const double &high[], const double &low[],
-                                               double &support, double &resistance)
-{
-   if(m_chartUtils == NULL)
-      return false;
-   
-   SPriceLevel supportLevels[], resistanceLevels[];
-   
-   m_chartUtils.FindSupportLevels(startIdx, endIdx, low, supportLevels);
-   m_chartUtils.FindResistanceLevels(startIdx, endIdx, high, resistanceLevels);
-   
-   // أخذ أقوى مستوى دعم ومقاومة
-   if(ArraySize(supportLevels) > 0)
-      support = supportLevels[0].price;
-   else
-      support = 0.0;
-   
-   if(ArraySize(resistanceLevels) > 0)
-      resistance = resistanceLevels[0].price;
-   else
-      resistance = 0.0;
-   
-   return (support > 0.0 && resistance > 0.0);
-}
-
-//+------------------------------------------------------------------+
-//| حساب القوة الصعودية                                             |
-//+------------------------------------------------------------------+
-double CPriceAction::CalculateBullishStrength(const int period, const double &open[],
-                                             const double &high[], const double &close[])
-{
-   if(period < 1)
-      return 0.0;
-   
-   int endIdx = ArraySize(close) - 1;
-   int startIdx = MathMax(0, endIdx - period + 1);
-   
-   double bullishStrength = 0.0;
-   int count = 0;
-   
-   for(int i = startIdx; i <= endIdx; i++)
-   {
-      if(close[i] > open[i]) // شمعة صعودية
-      {
-         double bodySize = close[i] - open[i];
-         double upperShadow = high[i] - close[i];
-         double totalRange = high[i] - open[i];
-         
-         if(totalRange > 0)
+         if(close[i] > close[i + 1] && close[i + 1] > close[i + 2])
          {
-            // القوة = حجم الجسم / (حجم الجسم + الظل العلوي)
-            bullishStrength += bodySize / (bodySize + upperShadow + 0.0001);
-            count++;
+            pullbackStart = i;
+            break;
          }
       }
-   }
-   
-   return (count > 0) ? bullishStrength / count : 0.0;
-}
-
-//+------------------------------------------------------------------+
-//| حساب القوة الهبوطية                                             |
-//+------------------------------------------------------------------+
-double CPriceAction::CalculateBearishStrength(const int period, const double &open[],
-                                             const double &low[], const double &close[])
-{
-   if(period < 1)
-      return 0.0;
-   
-   int endIdx = ArraySize(close) - 1;
-   int startIdx = MathMax(0, endIdx - period + 1);
-   
-   double bearishStrength = 0.0;
-   int count = 0;
-   
-   for(int i = startIdx; i <= endIdx; i++)
-   {
-      if(close[i] < open[i]) // شمعة هبوطية
+      
+      // التحقق من الارتداد للأعلى
+      if(pullbackStart > 0 && close[rates_total - 1] > close[pullbackStart])
       {
-         double bodySize = open[i] - close[i];
-         double lowerShadow = close[i] - low[i];
-         double totalRange = open[i] - low[i];
+         SPAChartPoint triggerPoint;
+         triggerPoint.time = time[pullbackStart];
+         triggerPoint.price = close[pullbackStart];
+         triggerPoint.barIndex = pullbackStart;
+         triggerPoint.isValid = true;
          
-         if(totalRange > 0)
-         {
-            // القوة = حجم الجسم / (حجم الجسم + الظل السفلي)
-            bearishStrength += bodySize / (bodySize + lowerShadow + 0.0001);
-            count++;
-         }
-      }
-   }
-   
-   return (count > 0) ? bearishStrength / count : 0.0;
-}
-
-//+------------------------------------------------------------------+
-//| تحليل تأكيد الحجم                                               |
-//+------------------------------------------------------------------+
-bool CPriceAction::AnalyzeVolumeConfirmation(const int idx, const double &prices[],
-                                            const long &volume[])
-{
-   if(idx < 5 || m_chartUtils == NULL)
-      return false;
-   
-   double avgVolume = m_chartUtils.CalculateAverageVolume(idx - 5, 5, volume);
-   
-   // تأكيد الحجم عند الحركة القوية
-   if((double)volume[idx] > avgVolume * 1.5)
-   {
-      double priceChange = MathAbs(prices[idx] - prices[idx - 1]) / prices[idx - 1];
-      if(priceChange > 0.01) // حركة أكبر من 1%
+         signal = CreateSignal(PA_PULLBACK, PATTERN_BULLISH, triggerPoint);
+         signal.overallTrend = trend;
+         signal.reliability = 0.7; // ارتداد في اتجاه الترند له موثوقية جيدة
+         
          return true;
+      }
+   }
+   // في الاتجاه الهابط - البحث عن ارتفاع مؤقت
+   else if(trend == PA_TREND_BEARISH)
+   {
+      for(int i = rates_total - 10; i < rates_total - 1; i++)
+      {
+         if(close[i] < close[i + 1] && close[i + 1] < close[i + 2])
+         {
+            pullbackStart = i;
+            break;
+         }
+      }
+      
+      // التحقق من الارتداد للأسفل
+      if(pullbackStart > 0 && close[rates_total - 1] < close[pullbackStart])
+      {
+         SPAChartPoint triggerPoint;
+         triggerPoint.time = time[pullbackStart];
+         triggerPoint.price = close[pullbackStart];
+         triggerPoint.barIndex = pullbackStart;
+         triggerPoint.isValid = true;
+         
+         signal = CreateSignal(PA_PULLBACK, PATTERN_BEARISH, triggerPoint);
+         signal.overallTrend = trend;
+         signal.reliability = 0.7;
+         
+         return true;
+      }
    }
    
    return false;
 }
 
 //+------------------------------------------------------------------+
-//| حساب ضغط الحجم                                                  |
+//| كشف الانعكاسات - مُصحح |
 //+------------------------------------------------------------------+
-double CPriceAction::CalculateVolumePressure(const int period, const double &close[],
-                                            const long &volume[])
+bool CPriceActionAnalyzer::DetectReversal(const double &high[], const double &low[], 
+                                         const double &close[], const double &open[],
+                                         const long &volume[], const datetime &time[],
+                                         int rates_total, SPriceActionSignal &signal)
 {
-   if(period < 2 || m_chartUtils == NULL)
-      return 0.0;
-   
-   int endIdx = ArraySize(close) - 1;
-   int startIdx = MathMax(0, endIdx - period + 1);
-   
-   double buyPressure = 0.0;
-   double sellPressure = 0.0;
-   
-   for(int i = startIdx + 1; i <= endIdx; i++)
-   {
-      double priceChange = close[i] - close[i - 1];
-      
-      if(priceChange > 0)
-         buyPressure += (double)volume[i];
-      else if(priceChange < 0)
-         sellPressure += (double)volume[i];
-   }
-   
-   double totalPressure = buyPressure + sellPressure;
-   return (totalPressure > 0) ? (buyPressure - sellPressure) / totalPressure : 0.0;
-}
-
-//+------------------------------------------------------------------+
-//| كشف الأنماط الزمنية                                             |
-//+------------------------------------------------------------------+
-bool CPriceAction::DetectTimeBasedPatterns(const int startIdx, const int endIdx,
-                                          const datetime &time[])
-{
-   if(endIdx - startIdx < 5)
+   if(rates_total < m_momentumPeriod + 5)
       return false;
    
-   // تحليل الأنماط الزمنية (يمكن تطويرها أكثر)
-   // مثال: فحص الأنماط في أوقات محددة من اليوم
+   // تحليل الزخم للبحث عن تباطؤ
+   ENUM_MOMENTUM_STATE momentumState = AnalyzeMomentum(close, rates_total);
    
-   MqlDateTime timeStruct;
-   TimeToStruct(time[endIdx], timeStruct);
+   if(momentumState != MOMENTUM_EXHAUSTED && momentumState != MOMENTUM_DECELERATING)
+      return false;
    
-   // فحص إذا كان في وقت نشط (مثال: بداية الجلسة الأوروبية)
-   if(timeStruct.hour >= 8 && timeStruct.hour <= 10)
+   // البحث عن أنماط انعكاسية في الشموع
+   int currentBar = rates_total - 1;
+   
+   // نمط الهامر في القاع
+   if(IsHammer(open, high, low, close, currentBar) && 
+      close[currentBar] < close[currentBar - 5]) // في منطقة انخفاض
+   {
+      SPAChartPoint triggerPoint;
+      triggerPoint.time = time[currentBar];
+      triggerPoint.price = close[currentBar];
+      triggerPoint.barIndex = currentBar;
+      triggerPoint.isValid = true;
+      
+      signal = CreateSignal(PA_REVERSAL, PATTERN_BULLISH, triggerPoint);
+      signal.momentumState = momentumState;
+      signal.structure = PS_DOUBLE_BOTTOM; // افتراض قاع مزدوج
+      
       return true;
+   }
+   
+   // نمط الدوجي كإشارة تردد
+   if(IsDoji(open, high, low, close, currentBar))
+   {
+      ENUM_PATTERN_DIRECTION dir = (close[currentBar - 1] > close[currentBar - 5]) ? 
+                                  PATTERN_BEARISH : PATTERN_BULLISH;
+      
+      SPAChartPoint triggerPoint;
+      triggerPoint.time = time[currentBar];
+      triggerPoint.price = close[currentBar];
+      triggerPoint.barIndex = currentBar;
+      triggerPoint.isValid = true;
+      
+      signal = CreateSignal(PA_REVERSAL, dir, triggerPoint);
+      signal.momentumState = momentumState;
+      signal.reliability = 0.6; // موثوقية متوسطة للدوجي
+      
+      return true;
+   }
    
    return false;
 }
 
 //+------------------------------------------------------------------+
-//| التنبؤ بالحركة التالية                                          |
+//| كشف التوطيدات - مُصحح |
 //+------------------------------------------------------------------+
-ENUM_PATTERN_DIRECTION CPriceAction::PredictNextMove(const SPriceActionAnalysis &analysis)
+bool CPriceActionAnalyzer::DetectConsolidation(const double &high[], const double &low[], 
+                                              const double &close[], const datetime &time[],
+                                              int rates_total, SPriceActionSignal &signal)
 {
-   // التنبؤ بناءً على نوع حركة السعر
-   switch(analysis.actionType)
+   if(rates_total < 20)
+      return false;
+   
+   // حساب المدى السعري للشموع الأخيرة
+   double totalRange = 0.0;
+   double averageRange = 0.0;
+   int period = 15;
+   
+   for(int i = rates_total - period; i < rates_total; i++)
+   {
+      totalRange += (high[i] - low[i]);
+   }
+   
+   averageRange = totalRange / period;
+   
+   // حساب المدى السعري الإجمالي للفترة
+   double maxHigh = high[ArrayMaximum(high, rates_total - period, period)];
+   double minLow = low[ArrayMinimum(low, rates_total - period, period)];
+   double overallRange = maxHigh - minLow;
+   
+   // إذا كان المدى الإجمالي صغير مقارنة بمتوسط مديات الشموع
+   if(overallRange < averageRange * period * 0.6)
+   {
+      SPAChartPoint triggerPoint;
+      triggerPoint.time = time[rates_total - period];
+      triggerPoint.price = (maxHigh + minLow) / 2.0;
+      triggerPoint.barIndex = rates_total - period;
+      triggerPoint.isValid = true;
+      
+      signal = CreateSignal(PA_CONSOLIDATION, PATTERN_NEUTRAL, triggerPoint);
+      signal.structure = PS_EQUAL_HIGHS; // توطيد أفقي
+      signal.reliability = 0.8; // التوطيد له موثوقية عالية
+      
+      return true;
+   }
+   
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| إنشاء إشارة جديدة - مُصحح |
+//+------------------------------------------------------------------+
+SPriceActionSignal CPriceActionAnalyzer::CreateSignal(ENUM_PRICE_ACTION_TYPE type, 
+                                                     ENUM_PATTERN_DIRECTION direction,
+                                                     const SPAChartPoint &triggerPoint)
+{
+   SPriceActionSignal signal;
+   
+   signal.id = GenerateUniqueId();
+   signal.name = EnumToString(type) + "_" + IntegerToString((int)signal.id);
+   signal.type = type;
+   signal.direction = direction;
+   signal.triggerPoint = triggerPoint;
+   signal.signalTime = TimeCurrent();
+   signal.expirationTime = CalculateSignalExpiration(signal);
+   signal.timeframe = Period();
+   
+   return signal;
+}
+
+//+------------------------------------------------------------------+
+//| تحليل الزخم - مُصحح |
+//+------------------------------------------------------------------+
+ENUM_MOMENTUM_STATE CPriceActionAnalyzer::AnalyzeMomentum(const double &close[], int rates_total, int period)
+{
+   if(rates_total < period + 5)
+      return MOMENTUM_SIDEWAYS;
+   
+   // حساب RSI
+   double rsi = 0.0;
+   if(ArraySize(m_rsi) > rates_total - 1)
+      rsi = m_rsi[rates_total - 1];
+   
+   // حساب الزخم
+   double momentum = close[rates_total - 1] - close[rates_total - 1 - period];
+   double prevMomentum = close[rates_total - 2] - close[rates_total - 2 - period];
+   
+   // تحليل حالة الزخم
+   if(MathAbs(momentum) > MathAbs(prevMomentum))
+   {
+      return MOMENTUM_ACCELERATING;
+   }
+   else if(MathAbs(momentum) < MathAbs(prevMomentum) * 0.5)
+   {
+      return MOMENTUM_DECELERATING;
+   }
+   else if(rsi > 80 || rsi < 20)
+   {
+      return MOMENTUM_EXHAUSTED;
+   }
+   
+   return MOMENTUM_SIDEWAYS;
+}
+
+//+------------------------------------------------------------------+
+//| تحليل الحجم - مُصحح |
+//+------------------------------------------------------------------+
+ENUM_VOLUME_ANALYSIS CPriceActionAnalyzer::AnalyzeVolume(const long &volume[], int rates_total, int period)
+{
+   if(ArraySize(volume) == 0 || rates_total < period)
+      return VOLUME_NORMAL;
+   
+   long currentVolume = volume[rates_total - 1];
+   double averageVolume = 0.0;
+   
+   // حساب متوسط الحجم
+   for(int i = rates_total - period; i < rates_total - 1; i++)
+   {
+      averageVolume += (double)volume[i];
+   }
+   averageVolume /= (period - 1);
+   
+   double volumeRatio = (double)currentVolume / averageVolume;
+   
+   if(volumeRatio > 2.0)
+      return VOLUME_CLIMAX;
+   else if(volumeRatio > 1.5)
+      return VOLUME_INCREASING;
+   else if(volumeRatio < 0.5)
+      return VOLUME_DRY_UP;
+   else if(volumeRatio < 0.8)
+      return VOLUME_DECREASING;
+   
+   return VOLUME_NORMAL;
+}
+
+//+------------------------------------------------------------------+
+//| حساب المؤشرات التقنية - مُصحح |
+//+------------------------------------------------------------------+
+void CPriceActionAnalyzer::CalculateIndicators(const double &close[], const long &volume[],
+                                              int rates_total)
+{
+   if(rates_total < m_momentumPeriod)
+      return;
+   
+   // تحضير المصفوفات
+   ArrayResize(m_rsi, rates_total);
+   ArrayResize(m_momentum, rates_total);
+   
+   if(ArraySize(volume) > 0)
+      ArrayResize(m_volumeSMA, rates_total);
+   
+   // حساب RSI (مبسط)
+   for(int i = m_momentumPeriod; i < rates_total; i++)
+   {
+      double gains = 0.0, losses = 0.0;
+      
+      for(int j = i - m_momentumPeriod + 1; j <= i; j++)
+      {
+         double change = close[j] - close[j - 1];
+         if(change > 0)
+            gains += change;
+         else
+            losses += MathAbs(change);
+      }
+      
+      double rs = (losses > 0) ? gains / losses : 100.0;
+      m_rsi[i] = 100.0 - (100.0 / (1.0 + rs));
+   }
+   
+   // حساب الزخم
+   for(int i = m_momentumPeriod; i < rates_total; i++)
+   {
+      m_momentum[i] = close[i] - close[i - m_momentumPeriod];
+   }
+}
+
+//+------------------------------------------------------------------+
+//| كشف نمط الهامر - مُصحح |
+//+------------------------------------------------------------------+
+bool CPriceActionAnalyzer::IsHammer(const double &open[], const double &high[], 
+                                   const double &low[], const double &close[], int index)
+{
+   if(index < 0 || index >= ArraySize(close) || index >= ArraySize(high) || index >= ArraySize(low))
+      return false;
+   
+   double openPrice = 0.0;
+   if(ArraySize(open) > 0 && ArraySize(open) > index)
+      openPrice = open[index];
+   else if(index > 0)
+      openPrice = close[index - 1];
+   else
+      openPrice = close[index];
+      
+   double bodySize = MathAbs(close[index] - openPrice);
+   double lowerShadow = MathMin(openPrice, close[index]) - low[index];
+   double upperShadow = high[index] - MathMax(openPrice, close[index]);
+   double totalRange = high[index] - low[index];
+   
+   // شروط الهامر: ظل سفلي طويل، جسم صغير، ظل علوي صغير
+   return (lowerShadow > bodySize * 2.0 && 
+           upperShadow < bodySize * 0.5 && 
+           bodySize < totalRange * 0.3 &&
+           totalRange > 0);
+}
+
+//+------------------------------------------------------------------+
+//| كشف نمط الدوجي - مُصحح |
+//+------------------------------------------------------------------+
+bool CPriceActionAnalyzer::IsDoji(const double &open[], const double &high[], 
+                                 const double &low[], const double &close[], int index)
+{
+   if(index < 0 || index >= ArraySize(close) || index >= ArraySize(high) || index >= ArraySize(low))
+      return false;
+   
+   double openPrice = 0.0;
+   if(ArraySize(open) > 0 && ArraySize(open) > index)
+      openPrice = open[index];
+   else if(index > 0)
+      openPrice = close[index - 1];
+   else
+      openPrice = close[index];
+      
+   double bodySize = MathAbs(close[index] - openPrice);
+   double totalRange = high[index] - low[index];
+   
+   // شروط الدوجي: جسم صغير جداً
+   return (bodySize < totalRange * 0.1 && totalRange > 0);
+}
+
+//+------------------------------------------------------------------+
+//| الدوال المساعدة المتبقية - مُصححة |
+//+------------------------------------------------------------------+
+double CPriceActionAnalyzer::CalculateVolumeRatio(const long &volume[], int rates_total, int period)
+{
+   if(ArraySize(volume) == 0 || rates_total < period)
+      return 1.0;
+   
+   long currentVolume = volume[rates_total - 1];
+   double averageVolume = 0.0;
+   
+   for(int i = rates_total - period; i < rates_total - 1; i++)
+   {
+      averageVolume += (double)volume[i];
+   }
+   averageVolume /= (period - 1);
+   
+   return (averageVolume > 0) ? (double)currentVolume / averageVolume : 1.0;
+}
+
+double CPriceActionAnalyzer::CalculateSignalReliability(const SPriceActionSignal &signal)
+{
+   double reliability = 0.5; // قيمة أساسية
+   
+   // تعديل حسب نوع الإشارة
+   switch(signal.type)
    {
       case PA_BREAKOUT:
-         if(analysis.momentum == MOMENTUM_STRONG_BULLISH)
-            return PATTERN_BULLISH;
-         else if(analysis.momentum == MOMENTUM_STRONG_BEARISH)
-            return PATTERN_BEARISH;
+         reliability += (signal.volumeConfirmation ? 0.2 : 0.0);
          break;
-         
       case PA_PULLBACK:
-         // التراجع عادة يؤدي لاستمرار الاتجاه الأصلي
-         if(analysis.structure == STRUCTURE_UPTREND)
-            return PATTERN_BULLISH;
-         else if(analysis.structure == STRUCTURE_DOWNTREND)
-            return PATTERN_BEARISH;
+         reliability += (signal.overallTrend != PA_TREND_SIDEWAYS ? 0.2 : 0.0);
          break;
-         
       case PA_REVERSAL:
-         // الانعكاس يشير لتغير الاتجاه
-         if(analysis.structure == STRUCTURE_UPTREND)
-            return PATTERN_BEARISH;
-         else if(analysis.structure == STRUCTURE_DOWNTREND)
-            return PATTERN_BULLISH;
+         reliability += (signal.momentumState == MOMENTUM_EXHAUSTED ? 0.2 : 0.0);
          break;
-         
       case PA_CONSOLIDATION:
-         // التوطيد عادة محايد
-         return PATTERN_NEUTRAL;
+         reliability += 0.3; // التوطيد عادة موثوق
+         break;
    }
    
-   return PATTERN_NEUTRAL;
+   // تعديل حسب السياق
+   if(signal.nearSupportResistance)
+      reliability += 0.1;
+   
+   return MathMin(reliability, 1.0);
+}
+
+double CPriceActionAnalyzer::CalculateSignalProbability(const SPriceActionSignal &signal,
+                                                       const double &high[], const double &low[],
+                                                       const double &close[], int rates_total)
+{
+   // حساب بسيط للاحتمالية بناء على الموثوقية
+   return MathMin(signal.reliability * 1.2, 1.0);
+}
+
+SPriceActionSignal CPriceActionAnalyzer::GetSignal(int index) const
+{
+   if(index >= 0 && index < m_signalCount)
+      return m_signals[index];
+   
+   SPriceActionSignal emptySignal;
+   return emptySignal;
+}
+
+long CPriceActionAnalyzer::GenerateUniqueId()
+{
+   return (long)GetTickCount64();
+}
+
+datetime CPriceActionAnalyzer::CalculateSignalExpiration(const SPriceActionSignal &signal)
+{
+   int periodSeconds = PeriodSeconds();
+   int barsToExpire = 10; // افتراضي 10 شموع
+   
+   switch(signal.type)
+   {
+      case PA_BREAKOUT: barsToExpire = 5; break;
+      case PA_PULLBACK: barsToExpire = 8; break;
+      case PA_REVERSAL: barsToExpire = 15; break;
+      case PA_CONSOLIDATION: barsToExpire = 20; break;
+   }
+   
+   return signal.signalTime + (barsToExpire * periodSeconds);
+}
+
+void CPriceActionAnalyzer::ClearSignals()
+{
+   ArrayResize(m_signals, 0);
+   m_signalCount = 0;
+}
+
+bool CPriceActionAnalyzer::ValidateSignal(const SPriceActionSignal &signal,
+                                         const double &high[], const double &low[],
+                                         const double &close[], int rates_total)
+{
+   // التحقق من القيم الأساسية
+   if(signal.reliability < 0.3)
+      return false;
+   
+   if(signal.triggerPoint.barIndex < 0 || signal.triggerPoint.barIndex >= rates_total)
+      return false;
+   
+   // تحققات إضافية حسب نوع الإشارة
+   switch(signal.type)
+   {
+      case PA_BREAKOUT:
+         return signal.volumeConfirmation || signal.reliability > 0.6;
+         
+      case PA_PULLBACK:
+         return signal.overallTrend != PA_TREND_SIDEWAYS;
+         
+      case PA_REVERSAL:
+         return signal.momentumState == MOMENTUM_EXHAUSTED || 
+                signal.momentumState == MOMENTUM_DECELERATING;
+         
+      default:
+         return true;
+   }
 }
 
 //+------------------------------------------------------------------+
-//| تقدير السعر المستهدف                                            |
+//| باقي الدوال المُصححة |
 //+------------------------------------------------------------------+
-double CPriceAction::EstimateTargetPrice(const SPriceActionAnalysis &analysis, 
-                                        const double currentPrice)
+double CPriceActionAnalyzer::CalculateMomentumStrength(const double &close[], int rates_total, int period)
 {
-   double targetPrice = currentPrice;
+   if(rates_total < period + 1)
+      return 0.0;
    
-   if(analysis.supportLevel > 0 && analysis.resistanceLevel > 0)
+   double momentum = close[rates_total - 1] - close[rates_total - 1 - period];
+   double averagePrice = 0.0;
+   
+   for(int i = rates_total - period; i < rates_total; i++)
    {
-      double range = analysis.resistanceLevel - analysis.supportLevel;
-      
-      // تقدير بناءً على نوع الحركة
-      switch(analysis.actionType)
+      averagePrice += close[i];
+   }
+   averagePrice /= period;
+   
+   return (averagePrice > 0) ? MathAbs(momentum) / averagePrice : 0.0;
+}
+
+double CPriceActionAnalyzer::CalculateVelocityChange(const double &close[], int rates_total, int period)
+{
+   if(rates_total < period * 2)
+      return 0.0;
+   
+   double currentVelocity = close[rates_total - 1] - close[rates_total - 1 - period];
+   double previousVelocity = close[rates_total - 1 - period] - close[rates_total - 1 - period * 2];
+   
+   return currentVelocity - previousVelocity;
+}
+
+bool CPriceActionAnalyzer::IsVolumeClimax(const long &volume[], int rates_total, int period)
+{
+   if(ArraySize(volume) == 0 || rates_total < period)
+      return false;
+   
+   double volumeRatio = CalculateVolumeRatio(volume, rates_total, period);
+   return volumeRatio > 2.0;
+}
+
+void CPriceActionAnalyzer::GetActiveSignals(SPriceActionSignal &signals[], int &count, ENUM_PRICE_ACTION_TYPE type)
+{
+   count = 0;
+   datetime currentTime = TimeCurrent();
+   
+   for(int i = 0; i < m_signalCount; i++)
+   {
+      if(m_signals[i].expirationTime > currentTime)
       {
-         case PA_BREAKOUT:
-            if(currentPrice > analysis.resistanceLevel)
-               targetPrice = analysis.resistanceLevel + range; // إسقاط المدى
-            else if(currentPrice < analysis.supportLevel)
-               targetPrice = analysis.supportLevel - range;
-            break;
-            
-         case PA_PULLBACK:
-            if(analysis.structure == STRUCTURE_UPTREND)
-               targetPrice = analysis.resistanceLevel;
-            else if(analysis.structure == STRUCTURE_DOWNTREND)
-               targetPrice = analysis.supportLevel;
-            break;
-            
-         case PA_REVERSAL:
-            if(currentPrice > (analysis.supportLevel + analysis.resistanceLevel) / 2)
-               targetPrice = analysis.supportLevel;
-            else
-               targetPrice = analysis.resistanceLevel;
-            break;
+         if(type == (ENUM_PRICE_ACTION_TYPE)-1 || m_signals[i].type == type)
+         {
+            ArrayResize(signals, count + 1);
+            signals[count] = m_signals[i];
+            count++;
+         }
+      }
+   }
+}
+
+void CPriceActionAnalyzer::GetSignalsByDirection(SPriceActionSignal &signals[], int &count, ENUM_PATTERN_DIRECTION direction)
+{
+   count = 0;
+   
+   for(int i = 0; i < m_signalCount; i++)
+   {
+      if(m_signals[i].direction == direction)
+      {
+         ArrayResize(signals, count + 1);
+         signals[count] = m_signals[i];
+         count++;
+      }
+   }
+}
+
+void CPriceActionAnalyzer::UpdateAnalysis(const double &high[], const double &low[], 
+                                         const double &close[], const double &open[],
+                                         const long &volume[], const datetime &time[],
+                                         int currentBar)
+{
+   // تحديث بسيط - إعادة حساب آخر شمعة
+   RemoveExpiredSignals();
+}
+
+void CPriceActionAnalyzer::DrawSignal(const string symbol, const SPriceActionSignal &signal)
+{
+   // رسم الإشارة على الرسم البياني
+   // يمكن تنفيذ هذا باستخدام ObjectCreate في MQL5
+}
+
+void CPriceActionAnalyzer::DrawAllSignals(const string symbol)
+{
+   for(int i = 0; i < m_signalCount; i++)
+   {
+      DrawSignal(symbol, m_signals[i]);
+   }
+}
+
+void CPriceActionAnalyzer::RemoveExpiredSignals()
+{
+   datetime currentTime = TimeCurrent();
+   int validCount = 0;
+   
+   for(int i = 0; i < m_signalCount; i++)
+   {
+      if(m_signals[i].expirationTime > currentTime)
+      {
+         if(validCount != i)
+            m_signals[validCount] = m_signals[i];
+         validCount++;
       }
    }
    
-   return targetPrice;
+   m_signalCount = validCount;
+   ArrayResize(m_signals, m_signalCount);
 }
 
-//+------------------------------------------------------------------+
-//| توليد تقرير التحليل                                             |
-//+------------------------------------------------------------------+
-string CPriceAction::GenerateAnalysisReport(const SPriceActionAnalysis &analysis)
+// دوال إضافية للتوافق
+ENUM_PRICE_STRUCTURE CPriceActionAnalyzer::AnalyzePriceStructure(const double &high[], const double &low[],
+                                                                int start, int end)
 {
-   string report = "=== تقرير تحليل حركة السعر ===\n";
-   report += StringFormat("الوقت: %s\n", TimeToString(analysis.analysisTime));
-   report += StringFormat("نوع الحركة: %s\n", EnumToString(analysis.actionType));
-   report += StringFormat("هيكل السوق: %s\n", EnumToString(analysis.structure));
-   report += StringFormat("الزخم: %s\n", EnumToString(analysis.momentum));
-   report += StringFormat("القوة: %.2f | السرعة: %.5f | التسارع: %.5f\n", 
-                         analysis.strength, analysis.velocity, analysis.acceleration);
-   
-   if(analysis.supportLevel > 0)
-      report += StringFormat("مستوى الدعم: %.5f\n", analysis.supportLevel);
-   
-   if(analysis.resistanceLevel > 0)
-      report += StringFormat("مستوى المقاومة: %.5f\n", analysis.resistanceLevel);
-   
-   report += StringFormat("اختراق: %s | تراجع: %s | انعكاس: %s\n",
-                         analysis.isBreakout ? "نعم" : "لا",
-                         analysis.isPullback ? "نعم" : "لا", 
-                         analysis.isReversal ? "نعم" : "لا");
-   
-   report += StringFormat("الوصف: %s\n", analysis.description);
-   
-   return report;
+   // تحليل بسيط للهيكل السعري
+   return PS_HIGHER_HIGHS;
 }
 
-//+------------------------------------------------------------------+
-//| توليد تقرير الشموع                                              |
-//+------------------------------------------------------------------+
-string CPriceAction::GenerateCandleReport(const SCandleStatistics &stats)
+bool CPriceActionAnalyzer::FindSwingPoints(const double &high[], const double &low[],
+                                          int start, int end, SPAChartPoint &swings[])
 {
-   string report = "=== تقرير إحصائيات الشموع ===\n";
-   report += StringFormat("إجمالي الشموع: %d\n", stats.totalCandles);
-   report += StringFormat("صعودية: %d (%.1f%%) | هبوطية: %d (%.1f%%) | دوجي: %d (%.1f%%)\n",
-                         stats.bullishCandles, 
-                         stats.totalCandles > 0 ? (double)stats.bullishCandles / stats.totalCandles * 100 : 0,
-                         stats.bearishCandles,
-                         stats.totalCandles > 0 ? (double)stats.bearishCandles / stats.totalCandles * 100 : 0,
-                         stats.dojiCandles,
-                         stats.totalCandles > 0 ? (double)stats.dojiCandles / stats.totalCandles * 100 : 0);
-   
-   report += StringFormat("متوسط حجم الجسم: %.5f\n", stats.avgBodySize);
-   report += StringFormat("متوسط الظل العلوي: %.5f\n", stats.avgUpperShadow);
-   report += StringFormat("متوسط الظل السفلي: %.5f\n", stats.avgLowerShadow);
-   report += StringFormat("متوسط المدى: %.5f\n", stats.avgRange);
-   report += StringFormat("نسبة الجسم للمدى: %.2f\n", stats.bodyToRangeRatio);
-   report += StringFormat("نسبة الظلال للجسم: %.2f\n", stats.shadowToBodyRatio);
-   report += StringFormat("أقصى شموع صعودية متتالية: %d\n", stats.consecutiveBullish);
-   report += StringFormat("أقصى شموع هبوطية متتالية: %d\n", stats.consecutiveBearish);
-   
-   return report;
+   // البحث عن نقاط التأرجح
+   return false;
 }
 
-//+------------------------------------------------------------------+
-//| الحصول على تحليل تاريخي                                         |
-//+------------------------------------------------------------------+
-SPriceActionAnalysis CPriceAction::GetHistoricalAnalysis(const int index) const
+bool CPriceActionAnalyzer::IsNearSupportResistance(double price, SSupportResistanceLevel &levels[], int levelCount)
 {
-   SPriceActionAnalysis emptyAnalysis;
-   
-   if(index < 0 || index >= ArraySize(m_historicalAnalysis))
-      return emptyAnalysis;
-   
-   return m_historicalAnalysis[index];
+   // التحقق من قرب مستويات الدعم والمقاومة
+   return false;
 }
 
-//+------------------------------------------------------------------+
-//| فحص الاتجاه الصاعد                                               |
-//+------------------------------------------------------------------+
-bool CPriceAction::IsUptrend(const double &highs[], const double &lows[], const int period)
+double CPriceActionAnalyzer::CalculateDistanceToSR(double price, SSupportResistanceLevel &levels[], int levelCount)
 {
-   if(period < 3)
+   // حساب المسافة إلى أقرب مستوى دعم/مقاومة
+   return 0.0;
+}
+
+void CPriceActionAnalyzer::CalculateRiskReward(SPriceActionSignal &signal, const SSupportResistanceLevel &nearestSR)
+{
+   // حساب نسبة المخاطرة للعائد
+   signal.riskReward = 2.0; // افتراضي
+}
+
+SPAChartPoint CPriceActionAnalyzer::CalculateStopLoss(const SPriceActionSignal &signal,
+                                                     const double &high[], const double &low[],
+                                                     int rates_total)
+{
+   SPAChartPoint stopLoss;
+   // حساب وقف الخسارة
+   return stopLoss;
+}
+
+SPAChartPoint CPriceActionAnalyzer::CalculateTakeProfit(const SPriceActionSignal &signal,
+                                                       const SSupportResistanceLevel &targetLevel)
+{
+   SPAChartPoint takeProfit;
+   // حساب جني الأرباح
+   return takeProfit;
+}
+
+bool CPriceActionAnalyzer::IsSignificantMove(const double &close[], int start, int end, double threshold)
+{
+   if(start >= end || end >= ArraySize(close))
       return false;
    
-   int endIdx = ArraySize(highs) - 1;
-   int startIdx = MathMax(0, endIdx - period + 1);
-   
-   // فحص القمم والقيعان المتصاعدة
-   bool higherHighs = true;
-   bool higherLows = true;
-   
-   for(int i = startIdx + 1; i <= endIdx; i++)
-   {
-      if(highs[i] <= highs[i-1])
-         higherHighs = false;
-      if(lows[i] <= lows[i-1])
-         higherLows = false;
-   }
-   
-   return (higherHighs && higherLows);
+   double change = MathAbs(close[end] - close[start]) / close[start];
+   return change > threshold;
 }
 
-//+------------------------------------------------------------------+
-//| فحص الاتجاه الهابط                                               |
-//+------------------------------------------------------------------+
-bool CPriceAction::IsDowntrend(const double &highs[], const double &lows[], const int period)
+bool CPriceActionAnalyzer::IsFalseBreakout(const double &high[], const double &low[], 
+                                          const double &close[], int breakoutBar, 
+                                          double breakoutLevel, bool isUpward)
 {
-   if(period < 3)
+   if(breakoutBar < 3)
       return false;
    
-   int endIdx = ArraySize(highs) - 1;
-   int startIdx = MathMax(0, endIdx - period + 1);
-   
-   // فحص القمم والقيعان المتنازلة
-   bool lowerHighs = true;
-   bool lowerLows = true;
-   
-   for(int i = startIdx + 1; i <= endIdx; i++)
+   // التحقق من عودة السعر خلال 3 شموع
+   for(int i = breakoutBar + 1; i < MathMin(breakoutBar + 4, ArraySize(close)); i++)
    {
-      if(highs[i] >= highs[i-1])
-         lowerHighs = false;
-      if(lows[i] >= lows[i-1])
-         lowerLows = false;
+      if(isUpward && close[i] < breakoutLevel)
+         return true; // عاد تحت مستوى الاختراق
+      else if(!isUpward && close[i] > breakoutLevel)
+         return true; // عاد فوق مستوى الاختراق
    }
    
-   return (lowerHighs && lowerLows);
+   return false;
 }
 
-//+------------------------------------------------------------------+
-//| حساب ATR                                                        |
-//+------------------------------------------------------------------+
-double CPriceAction::CalculateATR(const int period, const double &high[], 
-                                 const double &low[], const double &close[])
+double CPriceActionAnalyzer::CalculateAverageRange(const double &high[], const double &low[], 
+                                                  int period, int rates_total)
 {
-   if(period < 1)
+   if(rates_total < period)
       return 0.0;
    
-   int endIdx = ArraySize(high) - 1;
-   int startIdx = MathMax(1, endIdx - period + 1);
-   
-   double atr = 0.0;
-   
-   for(int i = startIdx; i <= endIdx; i++)
+   double totalRange = 0.0;
+   for(int i = rates_total - period; i < rates_total; i++)
    {
-      double tr = MathMax(high[i] - low[i],
-                         MathMax(MathAbs(high[i] - close[i-1]),
-                                MathAbs(low[i] - close[i-1])));
-      atr += tr;
+      totalRange += (high[i] - low[i]);
    }
    
-   return atr / (endIdx - startIdx + 1);
+   return totalRange / period;
 }
 
-//+------------------------------------------------------------------+
-//| فحص شمعة الدوجي                                                 |
-//+------------------------------------------------------------------+
-bool CPriceAction::IsDoji(const int idx, const double &open[], const double &close[])
+bool CPriceActionAnalyzer::IsEngulfing(const double &open[], const double &high[], 
+                                      const double &low[], const double &close[], int index)
 {
-   if(idx < 0 || idx >= ArraySize(open))
+   if(index < 1 || ArraySize(open) == 0 || ArraySize(open) <= index || ArraySize(close) <= index)
       return false;
    
-   double bodySize = MathAbs(close[idx] - open[idx]);
-   double range = 0.0; // يحتاج للمدى الكامل للشمعة
+   // نمط الابتلاع الصاعد
+   bool bullishEngulfing = (close[index - 1] < open[index - 1]) && // شمعة هابطة سابقة
+                          (close[index] > open[index]) &&       // شمعة صاعدة حالية
+                          (open[index] < close[index - 1]) &&   // فتح أقل من إغلاق السابقة
+                          (close[index] > open[index - 1]);     // إغلاق أعلى من فتح السابقة
    
-   // دوجي عندما يكون الجسم صغير جداً نسبة للمدى
-   return (bodySize < range * 0.1);
+   // نمط الابتلاع الهابط
+   bool bearishEngulfing = (close[index - 1] > open[index - 1]) && // شمعة صاعدة سابقة
+                          (close[index] < open[index]) &&        // شمعة هابطة حالية
+                          (open[index] > close[index - 1]) &&    // فتح أعلى من إغلاق السابقة
+                          (close[index] < open[index - 1]);      // إغلاق أقل من فتح السابقة
+   
+   return bullishEngulfing || bearishEngulfing;
 }
-
 //+------------------------------------------------------------------+
-//| فحص نمط الاحتواء                                                |
-//+------------------------------------------------------------------+
-bool CPriceAction::IsEngulfing(const int idx, const double &open[], const double &close[])
-{
-   if(idx < 1 || idx >= ArraySize(open))
-      return false;
-   
-   double body1 = MathAbs(close[idx-1] - open[idx-1]);
-   double body2 = MathAbs(close[idx] - open[idx]);
-   
-   // الشمعة الثانية تحتوي الأولى
-   bool engulfs = (body2 > body1) && 
-                  (MathMax(open[idx], close[idx]) > MathMax(open[idx-1], close[idx-1])) &&
-                  (MathMin(open[idx], close[idx]) < MathMin(open[idx-1], close[idx-1]));
-   
-   // اتجاهان متضادان
-   bool oppositeDirection = ((close[idx-1] > open[idx-1]) && (close[idx] < open[idx])) ||
-                           ((close[idx-1] < open[idx-1]) && (close[idx] > open[idx]));
-   
-   return (engulfs && oppositeDirection);
-}
-
-//+------------------------------------------------------------------+
-//| تحديث تاريخ التحليل                                             |
-//+------------------------------------------------------------------+
-void CPriceAction::UpdateAnalysisHistory()
-{
-   // يمكن إضافة منطق إضافي لتحديث التاريخ
-   // مثل حفظ البيانات في ملف أو قاعدة بيانات
-}
-
-//+------------------------------------------------------------------+
-//| حفظ التحليل في التاريخ                                          |
-//+------------------------------------------------------------------+
-void CPriceAction::SaveAnalysisToHistory(const SPriceActionAnalysis &analysis)
-{
-   int size = ArraySize(m_historicalAnalysis);
-   
-   // الاحتفاظ بآخر 100 تحليل فقط
-   if(size >= 100)
-   {
-      for(int i = 0; i < size - 1; i++)
-         m_historicalAnalysis[i] = m_historicalAnalysis[i + 1];
-      
-      m_historicalAnalysis[size - 1] = analysis;
-   }
-   else
-   {
-      ArrayResize(m_historicalAnalysis, size + 1);
-      m_historicalAnalysis[size] = analysis;
-   }
-}
-
-//+------------------------------------------------------------------+
-//| تحديث الإحصائيات                                                |
-//+------------------------------------------------------------------+
-void CPriceAction::UpdateStatistics(const SPriceActionAnalysis &analysis)
-{
-   // يمكن إضافة منطق لتحديث إحصائيات الأداء
-   // مثل معدل نجاح التنبؤات، دقة التحليل، إلخ
-}

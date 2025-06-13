@@ -1,653 +1,1020 @@
 //+------------------------------------------------------------------+
-//|                                               ChartPattern.mqh |
-//|                                     الفئة الأساسية لأنماط المخططات |
-//|                         حقوق النشر 2025, مكتبة أنماط الشموع اليابانية |
+//|                                                    ChartPattern.mqh |
+//|                  حقوق النشر 2025, مكتبة أنماط الشموع اليابانية |
+//|                                       https://www.yourwebsite.com |
 //+------------------------------------------------------------------+
 #property copyright "حقوق النشر 2025, مكتبة أنماط الشموع اليابانية"
 #property link      "https://www.yourwebsite.com"
 #property version   "1.00"
 #property strict
 
-//+------------------------------------------------------------------+
-//| تعدادات أنواع أنماط المخططات                                    |
-//+------------------------------------------------------------------+
-enum ENUM_CHART_PATTERN_TYPE
-{
-   CHART_PATTERN_CONTINUATION = 0,  // نمط استمراري
-   CHART_PATTERN_REVERSAL = 1       // نمط انعكاسي
-};
-
-// تعداد حالة النمط
-enum ENUM_CHART_PATTERN_STATUS
-{
-   CHART_PATTERN_FORMING = 0,       // في التكوين
-   CHART_PATTERN_CONFIRMED = 1      // مؤكد
-};
-
-// تعداد اتجاه النمط
-enum ENUM_PATTERN_DIRECTION
-{
-   PATTERN_NEUTRAL = 0,             // محايد
-   PATTERN_BULLISH = 1,             // صعودي
-   PATTERN_BEARISH = -1             // هبوطي
-};
-
-// تعداد نوع النقطة
-enum ENUM_CHART_POINT_TYPE
-{
-   CHART_POINT_HIGH = 0,            // قمة
-   CHART_POINT_LOW = 1              // قاع
-};
+#include "../../CandlePatterns/Base/CandleUtils.mqh"
+#include "../../CandlePatterns/Base/TrendDetector.mqh"
+#include "../../CandlePatterns/Base/PatternSignal.mqh"
+#include "ChartUtils.mqh"
 
 //+------------------------------------------------------------------+
-//| هياكل البيانات الأساسية                                         |
+//| تعدادات أنماط المخططات                                          |
 //+------------------------------------------------------------------+
-
-// هيكل النقطة في المخطط
-struct SChartPoint
+enum ENUM_CHART_PATTERN_NAME
 {
-   int               index;          // فهرس الشمعة
-   double            price;          // السعر
-   datetime          time;           // الوقت
-   ENUM_CHART_POINT_TYPE type;       // نوع النقطة
-   
-   SChartPoint()
-   {
-      index = 0;
-      price = 0.0;
-      time = 0;
-      type = CHART_POINT_HIGH;
-   }
-};
-
-// هيكل خط الاتجاه
-struct STrendLine
-{
-   SChartPoint       point1;         // النقطة الأولى
-   SChartPoint       point2;         // النقطة الثانية
-   double            slope;          // الميل
-   double            intercept;      // النقطة المقطوعة
-   bool              isValid;        // صالح أم لا
-   
-   STrendLine()
-   {
-      slope = 0.0;
-      intercept = 0.0;
-      isValid = false;
-   }
-};
-
-// هيكل نتيجة نمط المخطط
-struct SChartPatternResult
-{
-   string            patternName;          // اسم النمط
-   ENUM_CHART_PATTERN_TYPE patternType;   // نوع النمط
-   ENUM_PATTERN_DIRECTION direction;      // الاتجاه
-   double            confidence;           // درجة الثقة
-   double            reliability;          // الموثوقية
-   double            completionPercentage; // نسبة الاكتمال
-   
-   double            priceTarget;          // الهدف السعري
-   double            stopLoss;             // وقف الخسارة
-   double            entryPrice;           // سعر الدخول
-   
-   datetime          formationStart;       // بداية التكوين
-   datetime          formationEnd;         // نهاية التكوين
-   datetime          detectionTime;        // وقت الكشف
-   int               barsInPattern;        // عدد الشموع في النمط
-   
-   double            patternHeight;        // ارتفاع النمط
-   double            patternWidth;         // عرض النمط
-   
-   SChartPoint       keyPoints[];         // النقاط الرئيسية
-   STrendLine        trendLines[];        // خطوط الاتجاه
-   
-   ENUM_CHART_PATTERN_STATUS status;      // حالة النمط
-   bool              isActive;            // نشط أم لا
-   bool              isCompleted;         // مكتمل أم لا
-   bool              hasVolConfirmation;  // تأكيد الحجم
-   
-   SChartPatternResult()
-   {
-      patternName = "";
-      patternType = CHART_PATTERN_CONTINUATION;
-      direction = PATTERN_NEUTRAL;
-      confidence = 0.0;
-      reliability = 0.0;
-      completionPercentage = 0.0;
-      
-      priceTarget = 0.0;
-      stopLoss = 0.0;
-      entryPrice = 0.0;
-      
-      formationStart = 0;
-      formationEnd = 0;
-      detectionTime = 0;
-      barsInPattern = 0;
-      
-      patternHeight = 0.0;
-      patternWidth = 0.0;
-      
-      ArrayResize(keyPoints, 0);
-      ArrayResize(trendLines, 0);
-      
-      status = CHART_PATTERN_FORMING;
-      isActive = false;
-      isCompleted = false;
-      hasVolConfirmation = false;
-   }
+    CHART_HEAD_SHOULDERS,          // الرأس والكتفين
+    CHART_INVERSE_HEAD_SHOULDERS,  // الرأس والكتفين المقلوب
+    CHART_DOUBLE_TOP,              // القمة المزدوجة
+    CHART_DOUBLE_BOTTOM,           // القاع المزدوج
+    CHART_TRIPLE_TOP,              // القمة الثلاثية
+    CHART_TRIPLE_BOTTOM,           // القاع الثلاثي
+    CHART_ASCENDING_TRIANGLE,      // المثلث الصاعد
+    CHART_DESCENDING_TRIANGLE,     // المثلث الهابط
+    CHART_SYMMETRICAL_TRIANGLE,    // المثلث المتماثل
+    CHART_RISING_WEDGE,            // الوتد الصاعد
+    CHART_FALLING_WEDGE,           // الوتد الهابط
+    CHART_RECTANGLE,               // المستطيل
+    CHART_FLAG,                    // العلم
+    CHART_PENNANT,                 // الراية
+    CHART_CUP_HANDLE,              // الكوب والمقبض
+    CHART_ROUNDING_BOTTOM,         // القاع المدور
+    CHART_ROUNDING_TOP,            // القمة المدورة
+    CHART_DIAMOND,                 // الماس
+    CHART_BROADENING_FORMATION,    // التشكيل المتوسع
+    CHART_GARTLEY,                 // نمط جارتلي
+    CHART_BUTTERFLY,               // الفراشة
+    CHART_BAT,                     // الخفاش
+    CHART_CRAB,                    // السلطعون
+    CHART_CYPHER,                  // سايفر
+    CHART_SHARK,                   // القرش
+    CHART_ABCD,                    // ABCD
+    CHART_THREE_DRIVES,            // الدفعات الثلاث
+    CHART_WOLFE_WAVE,              // موجة وولف
+    CHART_ELLIOTT_WAVE             // موجة إليوت
 };
 
 //+------------------------------------------------------------------+
-//| الفئة الأساسية لأنماط المخططات                                   |
+//| هيكل إشارة نمط المخطط                                           |
+//+------------------------------------------------------------------+
+struct SChartPatternSignal
+{
+    // معلومات النمط
+    string patternName;                    // اسم النمط
+    ENUM_CHART_PATTERN_NAME patternType;   // نوع النمط
+    ENUM_CHART_PATTERN_TYPE category;      // فئة النمط
+    ENUM_PATTERN_DIRECTION direction;      // اتجاه النمط
+    
+    // معلومات الإشارة
+    datetime signalTime;                   // وقت الإشارة
+    double confidence;                     // درجة الثقة (0-1)
+    double reliability;                    // معدل الموثوقية
+    double strength;                       // قوة النمط
+    
+    // نقاط النمط
+    SChartPoint keyPoints[];               // النقاط الرئيسية
+    STrendLine trendLines[];               // خطوط الاتجاه
+    SPriceLevel supportResistance[];       // مستويات الدعم والمقاومة
+    
+    // أهداف التداول
+    double entryPrice;                     // سعر الدخول
+    double stopLoss;                       // وقف الخسارة
+    double takeProfit1;                    // الهدف الأول
+    double takeProfit2;                    // الهدف الثاني
+    double takeProfit3;                    // الهدف الثالث
+    double riskReward;                     // نسبة المخاطرة للعائد
+    
+    // معلومات التأكيد
+    bool volumeConfirmed;                  // تأكيد الحجم
+    bool trendConfirmed;                   // تأكيد الاتجاه
+    bool candleConfirmed;                  // تأكيد الشموع
+    bool timeConfirmed;                    // تأكيد التوقيت
+    
+    // معلومات الأداء
+    double projectedMove;                  // الحركة المتوقعة
+    double successProbability;             // احتمالية النجاح
+    datetime expectedDuration;             // المدة المتوقعة
+    double maxDrawdown;                    // أقصى تراجع متوقع
+    
+    // معلومات إضافية
+    string description;                    // وصف النمط
+    string tradingNotes;                   // ملاحظات التداول
+    string warnings;                       // تحذيرات
+    int barIndex;                          // مؤشر الشمعة
+    
+    SChartPatternSignal()
+    {
+        patternName = "";
+        patternType = CHART_HEAD_SHOULDERS;
+        category = CHART_PATTERN_REVERSAL;
+        direction = PATTERN_NEUTRAL;
+        signalTime = 0;
+        confidence = 0.0;
+        reliability = 0.0;
+        strength = 0.0;
+        entryPrice = 0.0;
+        stopLoss = 0.0;
+        takeProfit1 = 0.0;
+        takeProfit2 = 0.0;
+        takeProfit3 = 0.0;
+        riskReward = 0.0;
+        volumeConfirmed = false;
+        trendConfirmed = false;
+        candleConfirmed = false;
+        timeConfirmed = false;
+        projectedMove = 0.0;
+        successProbability = 0.0;
+        expectedDuration = 0;
+        maxDrawdown = 0.0;
+        description = "";
+        tradingNotes = "";
+        warnings = "";
+        barIndex = -1;
+    }
+};
+
+//+------------------------------------------------------------------+
+//| الفئة الأساسية لأنماط المخططات                                  |
 //+------------------------------------------------------------------+
 class CChartPattern
 {
 protected:
-   // المعلومات الأساسية
-   string                     m_symbol;           // الرمز
-   ENUM_TIMEFRAMES           m_timeframe;        // الإطار الزمني
-   bool                      m_initialized;      // حالة التهيئة
-   
-   // خصائص النمط
-   ENUM_CHART_PATTERN_TYPE   m_patternType;      // نوع النمط
-   string                    m_patternName;      // اسم النمط
-   
-   // معاملات الكشف العامة
-   double                    m_minConfidence;    // أقل درجة ثقة مقبولة
-   double                    m_minReliability;   // أقل موثوقية مقبولة
-   bool                      m_requireVolConfirm; // يتطلب تأكيد الحجم
-   
-   // إحصائيات الأداء
-   int                       m_detectedPatterns; // عدد الأنماط المكتشفة
-   int                       m_successfulPatterns; // عدد الأنماط الناجحة
-   datetime                  m_lastDetectionTime; // آخر وقت كشف
-   
+    // أدوات التحليل من CandlePatterns/Base
+    CTrendDetector*        m_trendDetector;     // كاشف الاتجاه
+    
+    // خصائص النمط
+    string                 m_name;              // اسم النمط
+    ENUM_CHART_PATTERN_NAME m_patternType;      // نوع النمط
+    ENUM_CHART_PATTERN_TYPE m_category;         // فئة النمط
+    ENUM_PATTERN_DIRECTION m_direction;         // الاتجاه المتوقع
+    double                 m_reliability;       // معدل الموثوقية
+    
+    // إعدادات التحليل
+    int                    m_minBars;           // الحد الأدنى للشموع
+    int                    m_maxBars;           // الحد الأقصى للشموع
+    double                 m_tolerancePercent;  // نسبة التسامح
+    bool                   m_useVolumeConfirmation;   // استخدام تأكيد الحجم
+    bool                   m_useCandleConfirmation;   // استخدام تأكيد الشموع
+    bool                   m_useTrendConfirmation;    // استخدام تأكيد الاتجاه
+    
+    // معاملات التحليل المتقدم
+    double                 m_minReliability;    // الحد الأدنى للموثوقية
+    double                 m_minRiskReward;     // الحد الأدنى للمخاطرة/العائد
+    int                    m_confirmationBars;  // عدد شموع التأكيد
+    
+    // بيانات التحليل الحالي
+    SChartPoint           m_detectedPoints[];   // النقاط المكتشفة
+    STrendLine            m_detectedLines[];    // الخطوط المكتشفة
+    SPriceLevel           m_detectedLevels[];   // المستويات المكتشفة
+    
 public:
-   // المنشئ والهادم
-                     CChartPattern();
-   virtual          ~CChartPattern();
-   
-   // التهيئة
-   virtual bool      Initialize(const string symbol, const ENUM_TIMEFRAMES timeframe);
-   virtual void      Reset();
-   
-   // الدوال الافتراضية الرئيسية
-   virtual bool      DetectPattern(const int startIdx, const string symbol, 
-                                 const ENUM_TIMEFRAMES timeframe,
-                                 const double &open[], const double &high[], 
-                                 const double &low[], const double &close[], 
-                                 const long &volume[], SChartPatternResult &result) = 0;
-   
-   // إعداد المعاملات العامة
-   void              SetDetectionParameters(const double minConfidence = 0.6,
-                                          const double minReliability = 0.5,
-                                          const bool requireVolConfirm = false);
-   
-   // الحصول على المعلومات
-   string            GetSymbol() const { return m_symbol; }
-   ENUM_TIMEFRAMES   GetTimeframe() const { return m_timeframe; }
-   string            GetPatternName() const { return m_patternName; }
-   ENUM_CHART_PATTERN_TYPE GetPatternType() const { return m_patternType; }
-   bool              IsInitialized() const { return m_initialized; }
-   
-   // إحصائيات الأداء
-   int               GetDetectedPatternsCount() const { return m_detectedPatterns; }
-   int               GetSuccessfulPatternsCount() const { return m_successfulPatterns; }
-   double            GetSuccessRate() const;
-   datetime          GetLastDetectionTime() const { return m_lastDetectionTime; }
-   
-   // تقارير
-   virtual string    GenerateStatusReport();
-   virtual string    GeneratePerformanceReport();
-   
+    // المنشئ والهادم
+    CChartPattern(const string name, ENUM_CHART_PATTERN_NAME patternType, 
+                  ENUM_CHART_PATTERN_TYPE category, ENUM_PATTERN_DIRECTION direction, 
+                  double reliability);
+    virtual ~CChartPattern();
+    
+    // الدوال الافتراضية الأساسية
+    virtual bool          Detect(const double &open[], const double &high[], const double &low[], 
+                                const double &close[], const long &volume[], const datetime &time[], 
+                                int rates_total, int &patternStart, int &patternEnd);
+    
+    virtual SChartPatternSignal GenerateSignal(const string symbol, ENUM_TIMEFRAMES timeframe,
+                                              const double &open[], const double &high[], 
+                                              const double &low[], const double &close[], 
+                                              const long &volume[], const datetime &time[],
+                                              int patternStart, int patternEnd);
+    
+    // دوال التكوين والإعدادات
+    void                  SetTolerancePercent(double tolerance) { m_tolerancePercent = MathMax(0.01, tolerance); }
+    void                  SetMinBars(int bars) { m_minBars = MathMax(5, bars); }
+    void                  SetMaxBars(int bars) { m_maxBars = MathMax(m_minBars, bars); }
+    void                  SetVolumeConfirmation(bool enable) { m_useVolumeConfirmation = enable; }
+    void                  SetCandleConfirmation(bool enable) { m_useCandleConfirmation = enable; }
+    void                  SetTrendConfirmation(bool enable) { m_useTrendConfirmation = enable; }
+    void                  SetMinReliability(double reliability) { m_minReliability = MathMax(0.1, reliability); }
+    void                  SetMinRiskReward(double ratio) { m_minRiskReward = MathMax(1.0, ratio); }
+    
+    // دوال الحصول على المعلومات
+    string                GetName() const { return m_name; }
+    ENUM_CHART_PATTERN_NAME GetPatternType() const { return m_patternType; }
+    ENUM_CHART_PATTERN_TYPE GetCategory() const { return m_category; }
+    ENUM_PATTERN_DIRECTION GetDirection() const { return m_direction; }
+    double                GetReliability() const { return m_reliability; }
+    double                GetTolerancePercent() const { return m_tolerancePercent; }
+    
+    // دوال التحليل المساعدة
+    bool                  IsPatternComplete(const SChartPoint &points[]);
+    double                CalculatePatternHeight(const SChartPoint &points[]);
+    double                CalculatePatternWidth(const SChartPoint &points[]);
+    double                CalculatePatternSymmetry(const SChartPoint &points[]);
+    
+    // دوال التحقق من الصحة
+    bool                  ValidateMinimumRequirements(int barCount, double priceRange);
+    bool                  ValidateTimeframe(ENUM_TIMEFRAMES timeframe);
+    bool                  ValidateMarketConditions(const double &close[], int period);
+    
 protected:
-   // دوال مساعدة للفئات المشتقة
-   virtual void      SetPatternType(const ENUM_CHART_PATTERN_TYPE type) { m_patternType = type; }
-   virtual void      SetPatternName(const string name) { m_patternName = name; }
-   
-   // دوال تحليل البيانات المشتركة
-   bool              IsValidTimeframe(const ENUM_TIMEFRAMES timeframe);
-   bool              IsValidSymbol(const string symbol);
-   bool              HasSufficientData(const double &data[], const int minBars = 50);
-   
-   // دوال حساب إحصائية
-   double            CalculateATR(const double &high[], const double &low[], 
-                                const double &close[], const int period = 14, const int startIdx = 0);
-   double            CalculateStdDev(const double &data[], const int period = 20, const int startIdx = 0);
-   double            CalculateVolatility(const double &high[], const double &low[], 
-                                       const double &close[], const int period = 20, const int startIdx = 0);
-   
-   // دوال تحليل الحجم
-   bool              IsVolumeIncreasing(const long &volume[], const int idx, const int lookback = 5);
-   bool              IsVolumeDecreasing(const long &volume[], const int idx, const int lookback = 5);
-   double            CalculateVolumeRatio(const long &volume[], const int idx1, const int idx2);
-   
-   // دوال الاتجاه
-   ENUM_PATTERN_DIRECTION DetectTrend(const double &close[], const int startIdx, const int endIdx);
-   bool              IsUptrend(const double &close[], const int startIdx, const int period = 20);
-   bool              IsDowntrend(const double &close[], const int startIdx, const int period = 20);
-   
-   // دوال القمم والقيعان
-   bool              IsLocalHigh(const double &high[], const int idx, const int lookback = 2);
-   bool              IsLocalLow(const double &low[], const int idx, const int lookback = 2);
-   
-   // دوال التحليل الزمني
-   bool              IsTimeframeAppropriate(const ENUM_TIMEFRAMES tf, const int minBars);
-   int               CalculateOptimalLookback(const ENUM_TIMEFRAMES tf);
-   
-   // دوال التحقق من صحة البيانات
-   bool              ValidateArraySizes(const double &open[], const double &high[], 
-                                      const double &low[], const double &close[], 
-                                      const long &volume[]);
-   bool              ValidateIndexRange(const int idx, const int arraySize);
-   
-   // تحديث الإحصائيات
-   void              UpdateDetectionStats(const bool patternFound);
-   void              UpdateSuccessStats(const bool patternSuccessful);
-   
+    // دالة افتراضية للكشف المحدد (يجب تجاوزها)
+    virtual bool          DetectSpecificPattern(const double &open[], const double &high[], 
+                                              const double &low[], const double &close[], 
+                                              const long &volume[], const datetime &time[], 
+                                              int rates_total, int &patternStart, int &patternEnd) = 0;
+    
+    // دوال التأكيد المختلفة
+    double                ConfirmWithCandlePatterns(const double &open[], const double &high[], 
+                                                   const double &low[], const double &close[], 
+                                                   const long &volume[], int barIndex);
+    
+    double                ConfirmWithTrendAnalysis(const double &open[], const double &high[], 
+                                                  const double &low[], const double &close[], 
+                                                  const long &volume[], int patternStart, int patternEnd);
+    
+    double                ConfirmWithVolumeAnalysis(const long &volume[], int patternStart, int patternEnd);
+    
+    // دوال حساب الأهداف
+    void                  CalculateTradingTargets(SChartPatternSignal &signal, 
+                                                const SChartPoint &points[]);
+    
+    double                CalculateStopLoss(const SChartPoint &points[], ENUM_PATTERN_DIRECTION direction);
+    double                CalculateTakeProfit(const SChartPoint &points[], ENUM_PATTERN_DIRECTION direction, 
+                                            int targetLevel = 1);
+    
+    // دوال مساعدة تستخدم ChartUtils
+    bool                  FindPatternPoints(const double &high[], const double &low[], const double &close[], 
+                                          int start, int end, SChartPoint &points[]);
+    
+    bool                  FindPatternTrendLines(const double &high[], const double &low[], const double &close[],
+                                              int start, int end, STrendLine &lines[]);
+    
+    bool                  FindKeyLevels(const double &high[], const double &low[], const double &close[],
+                                      const datetime &time[], int start, int end, SPriceLevel &levels[]);
+    
+    // دوال التحليل الإحصائي
+    double                CalculatePatternScore(const SChartPoint &points[], const STrendLine &lines[],
+                                              const long &volume[], int start, int end);
+    
+    double                CalculateSuccessProbability(const SChartPoint &points[], 
+                                                    const long &volume[], ENUM_TIMEFRAMES timeframe);
+    
+    // دوال التحقق من الجودة
+    bool                  CheckPatternIntegrity(const SChartPoint &points[]);
+    bool                  CheckTimeframeCompatibility(ENUM_TIMEFRAMES timeframe);
+    bool                  CheckVolumeProfile(const long &volume[], int start, int end);
+    
+    // دوال الذاكرة والأداء
+    void                  CleanupAnalysisData();
+    void                  OptimizeMemoryUsage();
+    
 private:
-   // دوال خاصة للاستخدام الداخلي
-   void              InitializeDefaultValues();
-   bool              ValidateInitialization();
+    // دوال مساعدة خاصة
+    void                  SortPointsByTime(SChartPoint &points[]);
+    void                  SortPointsByPrice(SChartPoint &points[]);
+    double                CalculateDistance(const SChartPoint &point1, const SChartPoint &point2);
+    bool                  IsValidPoint(const SChartPoint &point, double minPrice, double maxPrice);
+    
+    // دوال التحقق من البيانات
+    bool                  ValidateInputArrays(const double &open[], const double &high[], 
+                                            const double &low[], const double &close[], 
+                                            const long &volume[], int size);
+    
+    bool                  CheckDataConsistency(const double &high[], const double &low[], 
+                                             const double &close[], int start, int end);
 };
 
 //+------------------------------------------------------------------+
-//| المنشئ                                                           |
+//| منشئ الفئة الأساسية                                             |
 //+------------------------------------------------------------------+
-CChartPattern::CChartPattern()
+CChartPattern::CChartPattern(const string name, ENUM_CHART_PATTERN_NAME patternType, 
+                            ENUM_CHART_PATTERN_TYPE category, ENUM_PATTERN_DIRECTION direction, 
+                            double reliability)
 {
-   InitializeDefaultValues();
+    // تعيين المعلومات الأساسية
+    m_name = name;
+    m_patternType = patternType;
+    m_category = category;
+    m_direction = direction;
+    m_reliability = MathMax(0.1, MathMin(1.0, reliability));
+    
+    // إنشاء كاشف الاتجاه
+    m_trendDetector = new CTrendDetector();
+    
+    // إعدادات افتراضية
+    m_minBars = 10;
+    m_maxBars = 100;
+    m_tolerancePercent = 0.05;
+    m_useVolumeConfirmation = true;
+    m_useCandleConfirmation = true;
+    m_useTrendConfirmation = true;
+    m_minReliability = 0.6;
+    m_minRiskReward = 1.5;
+    m_confirmationBars = 3;
+    
+    // تهيئة المصفوفات
+    ArrayResize(m_detectedPoints, 0);
+    ArrayResize(m_detectedLines, 0);
+    ArrayResize(m_detectedLevels, 0);
 }
 
 //+------------------------------------------------------------------+
-//| الهادم                                                           |
+//| هادم الفئة                                                       |
 //+------------------------------------------------------------------+
 CChartPattern::~CChartPattern()
 {
-   // تنظيف إضافي إذا احتجنا
+    if(m_trendDetector != NULL)
+    {
+        delete m_trendDetector;
+        m_trendDetector = NULL;
+    }
+    
+    CleanupAnalysisData();
 }
 
 //+------------------------------------------------------------------+
-//| تهيئة القيم الافتراضية                                           |
+//| الدالة الرئيسية للكشف عن النمط                                  |
 //+------------------------------------------------------------------+
-void CChartPattern::InitializeDefaultValues()
+bool CChartPattern::Detect(const double &open[], const double &high[], const double &low[], 
+                          const double &close[], const long &volume[], const datetime &time[], 
+                          int rates_total, int &patternStart, int &patternEnd)
 {
-   m_symbol = "";
-   m_timeframe = PERIOD_CURRENT;
-   m_initialized = false;
-   
-   m_patternType = CHART_PATTERN_CONTINUATION;
-   m_patternName = "نمط عام";
-   
-   m_minConfidence = 0.6;
-   m_minReliability = 0.5;
-   m_requireVolConfirm = false;
-   
-   m_detectedPatterns = 0;
-   m_successfulPatterns = 0;
-   m_lastDetectionTime = 0;
+    // التحقق من صحة البيانات
+    if(!ValidateInputArrays(open, high, low, close, volume, rates_total))
+        return false;
+    
+    // التحقق من الحد الأدنى للبيانات
+    if(rates_total < m_minBars)
+        return false;
+    
+    // تنظيف البيانات السابقة
+    CleanupAnalysisData();
+    
+    // البحث عن النمط باستخدام الدالة المحددة
+    bool found = DetectSpecificPattern(open, high, low, close, volume, time, 
+                                      rates_total, patternStart, patternEnd);
+    
+    if(!found)
+        return false;
+    
+    // التحقق من صحة النتائج
+    if(patternStart < 0 || patternEnd >= rates_total || patternStart >= patternEnd)
+        return false;
+    
+    // التحقق من الحد الأدنى لطول النمط
+    if(patternEnd - patternStart < m_minBars)
+        return false;
+    
+    return true;
 }
 
 //+------------------------------------------------------------------+
-//| تهيئة النمط                                                     |
+//| إنتاج إشارة التداول                                             |
 //+------------------------------------------------------------------+
-bool CChartPattern::Initialize(const string symbol, const ENUM_TIMEFRAMES timeframe)
+SChartPatternSignal CChartPattern::GenerateSignal(const string symbol, ENUM_TIMEFRAMES timeframe,
+                                                  const double &open[], const double &high[], 
+                                                  const double &low[], const double &close[], 
+                                                  const long &volume[], const datetime &time[],
+                                                  int patternStart, int patternEnd)
 {
-   if(!IsValidSymbol(symbol) || !IsValidTimeframe(timeframe))
-      return false;
-   
-   m_symbol = symbol;
-   m_timeframe = timeframe;
-   m_initialized = true;
-   
-   Print("تم تهيئة كاشف النمط: ", m_patternName, " للرمز: ", symbol, 
-         " الإطار الزمني: ", EnumToString(timeframe));
-   
-   return ValidateInitialization();
+    SChartPatternSignal signal;
+    
+    // تعبئة المعلومات الأساسية
+    signal.patternName = m_name;
+    signal.patternType = m_patternType;
+    signal.category = m_category;
+    signal.direction = m_direction;
+    signal.reliability = m_reliability;
+    signal.signalTime = time[patternEnd];
+    signal.barIndex = patternEnd;
+    
+    // العثور على النقاط الرئيسية للنمط باستخدام CChartUtils
+    if(CChartUtils::FindSignificantPoints(high, low, close, patternStart, patternEnd, signal.keyPoints))
+    {
+        // حساب قوة النمط
+        signal.strength = CalculatePatternScore(signal.keyPoints, signal.trendLines, 
+                                               volume, patternStart, patternEnd);
+        
+        // حساب الثقة الأساسية
+        signal.confidence = m_reliability * signal.strength;
+        
+        // تأكيدات إضافية
+        if(m_useTrendConfirmation)
+        {
+            double trendConfirmation = ConfirmWithTrendAnalysis(open, high, low, close, volume, 
+                                                              patternStart, patternEnd);
+            signal.confidence *= (0.5 + 0.5 * trendConfirmation);
+            signal.trendConfirmed = (trendConfirmation > 0.6);
+        }
+        
+        if(m_useVolumeConfirmation)
+        {
+            double volumeConfirmation = ConfirmWithVolumeAnalysis(volume, patternStart, patternEnd);
+            signal.confidence *= (0.5 + 0.5 * volumeConfirmation);
+            signal.volumeConfirmed = (volumeConfirmation > 0.6);
+        }
+        
+        if(m_useCandleConfirmation)
+        {
+            double candleConfirmation = ConfirmWithCandlePatterns(open, high, low, close, 
+                                                                volume, patternEnd);
+            signal.confidence *= (0.5 + 0.5 * candleConfirmation);
+            signal.candleConfirmed = (candleConfirmation > 0.6);
+        }
+        
+        // حساب أهداف التداول
+        CalculateTradingTargets(signal, signal.keyPoints);
+        
+        // حساب احتمالية النجاح
+        signal.successProbability = CalculateSuccessProbability(signal.keyPoints, volume, timeframe);
+        
+        // إضافة معلومات إضافية
+        signal.description = StringFormat("نمط %s تم اكتشافه من %s إلى %s", 
+                                         m_name, TimeToString(time[patternStart]), 
+                                         TimeToString(time[patternEnd]));
+        
+        // تحذيرات إذا لزم الأمر
+        if(signal.confidence < m_minReliability)
+            signal.warnings += "مستوى الثقة أقل من المطلوب. ";
+        
+        if(signal.riskReward < m_minRiskReward)
+            signal.warnings += "نسبة المخاطرة للعائد منخفضة. ";
+    }
+    
+    return signal;
 }
 
 //+------------------------------------------------------------------+
-//| إعادة تعيين النمط                                               |
+//| التأكيد بأنماط الشموع                                           |
 //+------------------------------------------------------------------+
-void CChartPattern::Reset()
+double CChartPattern::ConfirmWithCandlePatterns(const double &open[], const double &high[], 
+                                               const double &low[], const double &close[], 
+                                               const long &volume[], int barIndex)
 {
-   m_detectedPatterns = 0;
-   m_successfulPatterns = 0;
-   m_lastDetectionTime = 0;
+    double confirmationFactor = 1.0;
+    
+    // فحص آخر 3 شموع للتأكيد
+    for(int i = MathMax(0, barIndex - 2); i <= barIndex && i < ArraySize(open); i++)
+    {
+        // تحليل بسيط للشموع
+        double bodySize = MathAbs(close[i] - open[i]);
+        double shadowSize = (high[i] - low[i]) - bodySize;
+        double avgBody = 0.0;
+        
+        // حساب متوسط جسم الشمعة للـ 14 شمعة السابقة
+        int period = MathMin(14, i);
+        if(period > 0)
+        {
+            for(int j = i - period; j < i; j++)
+            {
+                avgBody += MathAbs(close[j] - open[j]);
+            }
+            avgBody /= period;
+        }
+        
+        // تحليل نوع الشمعة
+        bool isBullish = close[i] > open[i];
+        bool isBearish = close[i] < open[i];
+        bool isDoji = bodySize < (high[i] - low[i]) * 0.1;
+        bool isHammer = (shadowSize > bodySize * 2) && 
+                       ((isBullish && (high[i] - close[i]) < bodySize * 0.5) ||
+                        (isBearish && (high[i] - open[i]) < bodySize * 0.5));
+        bool isInvertedHammer = (shadowSize > bodySize * 2) && 
+                               ((isBullish && (close[i] - low[i]) < bodySize * 0.5) ||
+                                (isBearish && (open[i] - low[i]) < bodySize * 0.5));
+        
+        // تعديل عامل التأكيد بناءً على نوع الشمعة
+        if(isDoji)
+        {
+            if(m_direction == PATTERN_NEUTRAL) confirmationFactor *= 1.1;
+            else confirmationFactor *= 0.95;
+        }
+        else if(isHammer)
+        {
+            if(m_direction == PATTERN_BULLISH) confirmationFactor *= 1.1;
+        }
+        else if(isInvertedHammer)
+        {
+            if(m_direction == PATTERN_BEARISH) confirmationFactor *= 1.1;
+        }
+        else if(bodySize > avgBody * 1.5) // شمعة قوية
+        {
+            if((m_direction == PATTERN_BULLISH && isBullish) ||
+               (m_direction == PATTERN_BEARISH && isBearish))
+                confirmationFactor *= 1.15;
+        }
+    }
+    
+    return MathMax(0.0, MathMin(1.0, confirmationFactor));
 }
 
 //+------------------------------------------------------------------+
-//| تحديد معاملات الكشف                                             |
+//| التأكيد بتحليل الاتجاه                                          |
 //+------------------------------------------------------------------+
-void CChartPattern::SetDetectionParameters(const double minConfidence = 0.6,
-                                          const double minReliability = 0.5,
-                                          const bool requireVolConfirm = false)
+double CChartPattern::ConfirmWithTrendAnalysis(const double &open[], const double &high[], 
+                                              const double &low[], const double &close[], 
+                                              const long &volume[], int patternStart, int patternEnd)
 {
-   m_minConfidence = MathMax(0.1, MathMin(1.0, minConfidence));
-   m_minReliability = MathMax(0.1, MathMin(1.0, minReliability));
-   m_requireVolConfirm = requireVolConfirm;
+    if(m_trendDetector == NULL)
+        return 0.5;
+    
+    // استدعاء تحليل الاتجاه
+    ENUM_TREND_TYPE detectedTrend = m_trendDetector.DetectTrend(open, high, low, close, volume, 
+                                                               ArraySize(close), patternEnd);
+    double trendStrength = m_trendDetector.GetTrendStrength();
+    
+    // مقارنة الاتجاه المكتشف مع اتجاه النمط
+    double confirmationScore = 0.5; // محايد
+    
+    if(m_direction == PATTERN_BULLISH && detectedTrend == TREND_BULLISH)
+        confirmationScore = 0.5 + (trendStrength * 0.5);
+    else if(m_direction == PATTERN_BEARISH && detectedTrend == TREND_BEARISH)
+        confirmationScore = 0.5 + (trendStrength * 0.5);
+    else if(m_direction == PATTERN_NEUTRAL && detectedTrend == TREND_NEUTRAL)
+        confirmationScore = 0.7;
+    else if(detectedTrend == TREND_NEUTRAL)
+        confirmationScore = 0.6; // اتجاه محايد يعطي تأكيد متوسط
+    else
+        confirmationScore = 0.5 - (trendStrength * 0.3); // اتجاه مضاد
+    
+    return MathMax(0.0, MathMin(1.0, confirmationScore));
 }
 
 //+------------------------------------------------------------------+
-//| حساب معدل النجاح                                                |
+//| التأكيد بتحليل الحجم                                            |
 //+------------------------------------------------------------------+
-double CChartPattern::GetSuccessRate() const
+double CChartPattern::ConfirmWithVolumeAnalysis(const long &volume[], int patternStart, int patternEnd)
 {
-   if(m_detectedPatterns == 0)
-      return 0.0;
-   
-   return (double)m_successfulPatterns / m_detectedPatterns * 100.0;
+    if(ArraySize(volume) == 0 || patternEnd >= ArraySize(volume))
+        return 0.5;
+    
+    // حساب متوسط الحجم قبل النمط
+    double avgVolumeBefore = 0.0;
+    int beforePeriod = MathMin(20, patternStart);
+    int beforeCount = 0;
+    
+    for(int i = MathMax(0, patternStart - beforePeriod); i < patternStart; i++)
+    {
+        avgVolumeBefore += (double)volume[i];
+        beforeCount++;
+    }
+    
+    if(beforeCount > 0)
+        avgVolumeBefore /= beforeCount;
+    else
+        return 0.5;
+    
+    // حساب متوسط الحجم أثناء النمط
+    double avgVolumeDuring = 0.0;
+    int duringCount = 0;
+    
+    for(int i = patternStart; i <= patternEnd; i++)
+    {
+        avgVolumeDuring += (double)volume[i];
+        duringCount++;
+    }
+    
+    if(duringCount > 0)
+        avgVolumeDuring /= duringCount;
+    else
+        return 0.5;
+    
+    // حساب نسبة التأكيد
+    double volumeRatio = (avgVolumeBefore > 0) ? (avgVolumeDuring / avgVolumeBefore) : 1.0;
+    
+    // تحديد مستوى التأكيد بناءً على نوع النمط
+    double confirmationScore = 0.5;
+    
+    // أنماط الانعكاس تتطلب زيادة في الحجم
+    if(m_category == CHART_PATTERN_REVERSAL)
+    {
+        if(volumeRatio > 1.5)
+            confirmationScore = 0.8;
+        else if(volumeRatio > 1.2)
+            confirmationScore = 0.7;
+        else if(volumeRatio > 1.0)
+            confirmationScore = 0.6;
+        else
+            confirmationScore = 0.4;
+    }
+    // أنماط الاستمرار قد تتطلب انخفاض في الحجم
+    else if(m_category == CHART_PATTERN_CONTINUATION)
+    {
+        if(volumeRatio < 0.8)
+            confirmationScore = 0.7;
+        else if(volumeRatio < 1.0)
+            confirmationScore = 0.6;
+        else
+            confirmationScore = 0.5;
+    }
+    
+    return MathMax(0.0, MathMin(1.0, confirmationScore));
 }
 
 //+------------------------------------------------------------------+
-//| توليد تقرير الحالة                                              |
+//| العثور على النقاط الرئيسية للنمط                                |
 //+------------------------------------------------------------------+
-string CChartPattern::GenerateStatusReport()
+bool CChartPattern::FindPatternPoints(const double &high[], const double &low[], const double &close[], 
+                                     int start, int end, SChartPoint &points[])
 {
-   string report = "=== تقرير حالة النمط ===\n";
-   report += "اسم النمط: " + m_patternName + "\n";
-   report += "الرمز: " + m_symbol + "\n";
-   report += "الإطار الزمني: " + EnumToString(m_timeframe) + "\n";
-   report += "مهيأ: " + (m_initialized ? "نعم" : "لا") + "\n";
-   report += StringFormat("أقل ثقة مقبولة: %.1f%%\n", m_minConfidence * 100);
-   report += StringFormat("أقل موثوقية مقبولة: %.1f%%\n", m_minReliability * 100);
-   report += "تأكيد الحجم مطلوب: " + (m_requireVolConfirm ? "نعم" : "لا") + "\n";
-   
-   return report;
+    // استخدام CChartUtils للبحث عن النقاط
+    return CChartUtils::FindSignificantPoints(high, low, close, start, end, points);
 }
 
 //+------------------------------------------------------------------+
-//| توليد تقرير الأداء                                              |
+//| ترتيب النقاط حسب الوقت                                          |
 //+------------------------------------------------------------------+
-string CChartPattern::GeneratePerformanceReport()
+void CChartPattern::SortPointsByTime(SChartPoint &points[])
 {
-   string report = "=== تقرير أداء النمط ===\n";
-   report += StringFormat("الأنماط المكتشفة: %d\n", m_detectedPatterns);
-   report += StringFormat("الأنماط الناجحة: %d\n", m_successfulPatterns);
-   report += StringFormat("معدل النجاح: %.1f%%\n", GetSuccessRate());
-   
-   if(m_lastDetectionTime > 0)
-      report += "آخر كشف: " + TimeToString(m_lastDetectionTime) + "\n";
-   else
-      report += "لم يتم كشف أي نمط بعد\n";
-   
-   return report;
+    int size = ArraySize(points);
+    
+    // ترتيب بالفقاعات
+    for(int i = 0; i < size - 1; i++)
+    {
+        for(int j = i + 1; j < size; j++)
+        {
+            if(points[j].barIndex < points[i].barIndex)
+            {
+                SChartPoint temp = points[i];
+                points[i] = points[j];
+                points[j] = temp;
+            }
+        }
+    }
 }
 
 //+------------------------------------------------------------------+
-//| التحقق من صحة الإطار الزمني                                     |
+//| حساب نقاط النمط                                                |
 //+------------------------------------------------------------------+
-bool CChartPattern::IsValidTimeframe(const ENUM_TIMEFRAMES timeframe)
+double CChartPattern::CalculatePatternScore(const SChartPoint &points[], const STrendLine &lines[],
+                                          const long &volume[], int start, int end)
 {
-   return (timeframe >= PERIOD_M1 && timeframe <= PERIOD_MN1);
+    double score = 0.0;
+    int factors = 0;
+    
+    // عامل 1: عدد النقاط الرئيسية
+    int pointCount = ArraySize(points);
+    if(pointCount >= 3)
+    {
+        score += 0.3;
+        factors++;
+    }
+    
+    // عامل 2: تماثل النمط (إذا وجدت نقاط)
+    if(pointCount >= 4)
+    {
+        double symmetry = CalculatePatternSymmetry(points);
+        score += symmetry * 0.3;
+        factors++;
+    }
+    
+    // عامل 3: قوة النقاط
+    if(pointCount > 0)
+    {
+        double avgStrength = 0.0;
+        for(int i = 0; i < pointCount; i++)
+        {
+            avgStrength += points[i].strength;
+        }
+        avgStrength /= pointCount;
+        score += avgStrength * 0.2;
+        factors++;
+    }
+    
+    // عامل 4: تحليل الحجم
+    if(ArraySize(volume) > 0 && end < ArraySize(volume))
+    {
+        double volumeScore = 0.0;
+        double avgVolume = 0.0;
+        int volumeCount = 0;
+        
+        for(int i = start; i <= end; i++)
+        {
+            avgVolume += (double)volume[i];
+            volumeCount++;
+        }
+        
+        if(volumeCount > 0)
+        {
+            avgVolume /= volumeCount;
+            // تطبيع الحجم
+            volumeScore = MathMin(1.0, avgVolume / 1000.0);
+            score += volumeScore * 0.2;
+            factors++;
+        }
+    }
+    
+    // تطبيع النتيجة
+    if(factors > 0)
+        score /= factors;
+    
+    return MathMax(0.0, MathMin(1.0, score));
 }
 
 //+------------------------------------------------------------------+
-//| التحقق من صحة الرمز                                             |
+//| حساب احتمالية النجاح                                            |
 //+------------------------------------------------------------------+
-bool CChartPattern::IsValidSymbol(const string symbol)
+double CChartPattern::CalculateSuccessProbability(const SChartPoint &points[], 
+                                                const long &volume[], ENUM_TIMEFRAMES timeframe)
 {
-   return (StringLen(symbol) > 0 && StringLen(symbol) <= 12);
+    double probability = m_reliability; // البداية من موثوقية النمط الأساسية
+    
+    // تعديل بناءً على عدد النقاط
+    int pointCount = ArraySize(points);
+    if(pointCount >= 5)
+        probability += 0.1;
+    else if(pointCount >= 3)
+        probability += 0.05;
+    
+    // تعديل بناءً على الإطار الزمني
+    switch(timeframe)
+    {
+        case PERIOD_D1:
+            probability += 0.1; // الأطر الأعلى أكثر موثوقية
+            break;
+        case PERIOD_H4:
+            probability += 0.05;
+            break;
+        case PERIOD_H1:
+            break; // لا تعديل
+        case PERIOD_M30:
+        case PERIOD_M15:
+            probability -= 0.05; // الأطر الأقل أقل موثوقية
+            break;
+        case PERIOD_M5:
+        case PERIOD_M1:
+            probability -= 0.1;
+            break;
+    }
+    
+    // تعديل بناءً على حجم التداول
+    if(ArraySize(volume) > 0)
+    {
+        double avgVolume = 0.0;
+        for(int i = 0; i < ArraySize(volume); i++)
+        {
+            avgVolume += (double)volume[i];
+        }
+        avgVolume /= ArraySize(volume);
+        
+        if(avgVolume > 1000) // حجم تداول عالي
+            probability += 0.05;
+    }
+    
+    return MathMax(0.1, MathMin(1.0, probability));
 }
 
 //+------------------------------------------------------------------+
-//| التحقق من كفاية البيانات                                        |
+//| حساب تماثل النمط                                               |
 //+------------------------------------------------------------------+
-bool CChartPattern::HasSufficientData(const double &data[], const int minBars = 50)
+double CChartPattern::CalculatePatternSymmetry(const SChartPoint &points[])
 {
-   return (ArraySize(data) >= minBars);
+    int pointCount = ArraySize(points);
+    if(pointCount < 4)
+        return 0.5;
+    
+    // حساب المسافات بين النقاط
+    double distances[];
+    ArrayResize(distances, pointCount - 1);
+    
+    for(int i = 0; i < pointCount - 1; i++)
+    {
+        distances[i] = MathAbs(points[i + 1].barIndex - points[i].barIndex);
+    }
+    
+    // حساب الانحراف المعياري للمسافات
+    double avgDistance = 0.0;
+    for(int i = 0; i < ArraySize(distances); i++)
+    {
+        avgDistance += distances[i];
+    }
+    avgDistance /= ArraySize(distances);
+    
+    double variance = 0.0;
+    for(int i = 0; i < ArraySize(distances); i++)
+    {
+        variance += MathPow(distances[i] - avgDistance, 2);
+    }
+    variance /= ArraySize(distances);
+    
+    double standardDeviation = MathSqrt(variance);
+    
+    // تحويل الانحراف المعياري إلى نقاط تماثل (قيم أقل = تماثل أعلى)
+    double symmetryScore = 1.0 - MathMin(1.0, standardDeviation / avgDistance);
+    
+    return MathMax(0.0, MathMin(1.0, symmetryScore));
 }
 
 //+------------------------------------------------------------------+
-//| حساب مؤشر ATR                                                   |
+//| حساب أهداف التداول                                             |
 //+------------------------------------------------------------------+
-double CChartPattern::CalculateATR(const double &high[], const double &low[], 
-                                  const double &close[], const int period = 14, const int startIdx = 0)
+void CChartPattern::CalculateTradingTargets(SChartPatternSignal &signal, 
+                                          const SChartPoint &points[])
 {
-   if(ArraySize(high) < period + startIdx || period <= 0)
-      return 0.0;
-   
-   double sum = 0.0;
-   for(int i = startIdx + 1; i < startIdx + period + 1; i++)
-   {
-      double tr1 = high[i] - low[i];
-      double tr2 = MathAbs(high[i] - close[i-1]);
-      double tr3 = MathAbs(low[i] - close[i-1]);
-      
-      sum += MathMax(tr1, MathMax(tr2, tr3));
-   }
-   
-   return sum / period;
+    int pointCount = ArraySize(points);
+    if(pointCount < 2)
+        return;
+    
+    // العثور على أعلى وأقل نقطة في النمط
+    double highestPrice = points[0].price;
+    double lowestPrice = points[0].price;
+    
+    for(int i = 1; i < pointCount; i++)
+    {
+        highestPrice = MathMax(highestPrice, points[i].price);
+        lowestPrice = MathMin(lowestPrice, points[i].price);
+    }
+    
+    double patternHeight = highestPrice - lowestPrice;
+    double patternMidpoint = (highestPrice + lowestPrice) / 2.0;
+    
+    // تحديد نقطة الدخول والوقف
+    if(m_direction == PATTERN_BULLISH)
+    {
+        signal.entryPrice = highestPrice * 1.001; // كسر أعلى مستوى
+        signal.stopLoss = lowestPrice * 0.999;   // أقل من أدنى مستوى
+        signal.takeProfit1 = signal.entryPrice + (patternHeight * 0.618); // فيبوناتشي 61.8%
+        signal.takeProfit2 = signal.entryPrice + patternHeight;           // ارتفاع النمط
+        signal.takeProfit3 = signal.entryPrice + (patternHeight * 1.618); // فيبوناتشي 161.8%
+    }
+    else if(m_direction == PATTERN_BEARISH)
+    {
+        signal.entryPrice = lowestPrice * 0.999;  // كسر أدنى مستوى
+        signal.stopLoss = highestPrice * 1.001;   // أعلى من أعلى مستوى
+        signal.takeProfit1 = signal.entryPrice - (patternHeight * 0.618); // فيبوناتشي 61.8%
+        signal.takeProfit2 = signal.entryPrice - patternHeight;           // ارتفاع النمط
+        signal.takeProfit3 = signal.entryPrice - (patternHeight * 1.618); // فيبوناتشي 161.8%
+    }
+    else // PATTERN_NEUTRAL
+    {
+        signal.entryPrice = patternMidpoint;
+        signal.stopLoss = (m_direction == PATTERN_BULLISH) ? lowestPrice : highestPrice;
+        signal.takeProfit1 = signal.entryPrice + (patternHeight * 0.5);
+        signal.takeProfit2 = signal.entryPrice + patternHeight;
+        signal.takeProfit3 = signal.entryPrice + (patternHeight * 1.5);
+    }
+    
+    // حساب نسبة المخاطرة للعائد
+    double risk = MathAbs(signal.entryPrice - signal.stopLoss);
+    double reward = MathAbs(signal.takeProfit1 - signal.entryPrice);
+    
+    if(risk > 0)
+        signal.riskReward = reward / risk;
+    else
+        signal.riskReward = 0.0;
+    
+    // تقدير الحركة المتوقعة
+    signal.projectedMove = patternHeight;
+    
+    // تقدير أقصى تراجع
+    signal.maxDrawdown = patternHeight * 0.3; // 30% من ارتفاع النمط
 }
 
 //+------------------------------------------------------------------+
-//| حساب الانحراف المعياري                                          |
+//| التحقق من صحة المصفوفات المدخلة                                 |
 //+------------------------------------------------------------------+
-double CChartPattern::CalculateStdDev(const double &data[], const int period = 20, const int startIdx = 0)
+bool CChartPattern::ValidateInputArrays(const double &open[], const double &high[], 
+                                       const double &low[], const double &close[], 
+                                       const long &volume[], int size)
 {
-   if(ArraySize(data) < period + startIdx || period <= 0)
-      return 0.0;
-   
-   // حساب المتوسط
-   double sum = 0.0;
-   for(int i = startIdx; i < startIdx + period; i++)
-      sum += data[i];
-   double mean = sum / period;
-   
-   // حساب الانحراف المعياري
-   double variance = 0.0;
-   for(int i = startIdx; i < startIdx + period; i++)
-      variance += MathPow(data[i] - mean, 2);
-   
-   return MathSqrt(variance / period);
+    // التحقق من الأحجام
+    if(ArraySize(open) < size || ArraySize(high) < size || 
+       ArraySize(low) < size || ArraySize(close) < size)
+        return false;
+    
+    // التحقق من الحد الأدنى للحجم
+    if(size < 10)
+        return false;
+    
+    // التحقق من العلاقات المنطقية
+    for(int i = 0; i < size; i++)
+    {
+        if(high[i] < low[i] || high[i] < open[i] || high[i] < close[i] ||
+           low[i] > open[i] || low[i] > close[i] ||
+           open[i] <= 0 || high[i] <= 0 || low[i] <= 0 || close[i] <= 0)
+            return false;
+    }
+    
+    return true;
 }
 
 //+------------------------------------------------------------------+
-//| حساب التقلبات                                                   |
+//| تنظيف بيانات التحليل                                            |
 //+------------------------------------------------------------------+
-double CChartPattern::CalculateVolatility(const double &high[], const double &low[], 
-                                         const double &close[], const int period = 20, const int startIdx = 0)
+void CChartPattern::CleanupAnalysisData()
 {
-   if(ArraySize(close) < period + startIdx || period <= 0)
-      return 0.0;
-   
-   double returns[];
-   ArrayResize(returns, period - 1);
-   
-   for(int i = 0; i < period - 1; i++)
-   {
-      returns[i] = MathLog(close[startIdx + i + 1] / close[startIdx + i]);
-   }
-   
-   return CalculateStdDev(returns, period - 1, 0);
+    ArrayResize(m_detectedPoints, 0);
+    ArrayResize(m_detectedLines, 0);
+    ArrayResize(m_detectedLevels, 0);
 }
 
 //+------------------------------------------------------------------+
-//| فحص زيادة الحجم                                                 |
+//| التحقق من اكتمال النمط                                          |
 //+------------------------------------------------------------------+
-bool CChartPattern::IsVolumeIncreasing(const long &volume[], const int idx, const int lookback = 5)
+bool CChartPattern::IsPatternComplete(const SChartPoint &points[])
 {
-   if(idx < lookback || ArraySize(volume) <= idx)
-      return false;
-   
-   long currentAvg = 0;
-   long previousAvg = 0;
-   
-   for(int i = 0; i < lookback; i++)
-   {
-      currentAvg += volume[idx - i];
-      previousAvg += volume[idx - lookback - i];
-   }
-   
-   return (currentAvg > previousAvg);
+    int pointCount = ArraySize(points);
+    
+    // الحد الأدنى للنقاط
+    if(pointCount < 3)
+        return false;
+    
+    // التحقق من أن جميع النقاط مؤكدة
+    for(int i = 0; i < pointCount; i++)
+    {
+        if(!points[i].isConfirmed)
+            return false;
+    }
+    
+    return true;
 }
 
 //+------------------------------------------------------------------+
-//| فحص نقصان الحجم                                                 |
+//| حساب ارتفاع النمط                                              |
 //+------------------------------------------------------------------+
-bool CChartPattern::IsVolumeDecreasing(const long &volume[], const int idx, const int lookback = 5)
+double CChartPattern::CalculatePatternHeight(const SChartPoint &points[])
 {
-   return !IsVolumeIncreasing(volume, idx, lookback);
+    int pointCount = ArraySize(points);
+    if(pointCount == 0)
+        return 0.0;
+    
+    double maxPrice = points[0].price;
+    double minPrice = points[0].price;
+    
+    for(int i = 1; i < pointCount; i++)
+    {
+        maxPrice = MathMax(maxPrice, points[i].price);
+        minPrice = MathMin(minPrice, points[i].price);
+    }
+    
+    return maxPrice - minPrice;
 }
 
 //+------------------------------------------------------------------+
-//| حساب نسبة الحجم                                                 |
+//| حساب عرض النمط                                                 |
 //+------------------------------------------------------------------+
-double CChartPattern::CalculateVolumeRatio(const long &volume[], const int idx1, const int idx2)
+double CChartPattern::CalculatePatternWidth(const SChartPoint &points[])
 {
-   if(idx1 >= ArraySize(volume) || idx2 >= ArraySize(volume) || volume[idx2] == 0)
-      return 1.0;
-   
-   return (double)volume[idx1] / volume[idx2];
+    int pointCount = ArraySize(points);
+    if(pointCount == 0)
+        return 0.0;
+    
+    int maxBarIndex = points[0].barIndex;
+    int minBarIndex = points[0].barIndex;
+    
+    for(int i = 1; i < pointCount; i++)
+    {
+        maxBarIndex = MathMax(maxBarIndex, points[i].barIndex);
+        minBarIndex = MathMin(minBarIndex, points[i].barIndex);
+    }
+    
+    return maxBarIndex - minBarIndex;
 }
 
 //+------------------------------------------------------------------+
-//| كشف الاتجاه                                                     |
+//| التحقق من الحد الأدنى للمتطلبات                                 |
 //+------------------------------------------------------------------+
-ENUM_PATTERN_DIRECTION CChartPattern::DetectTrend(const double &close[], const int startIdx, const int endIdx)
+bool CChartPattern::ValidateMinimumRequirements(int barCount, double priceRange)
 {
-   if(startIdx >= endIdx || endIdx >= ArraySize(close))
-      return PATTERN_NEUTRAL;
-   
-   double startPrice = close[startIdx];
-   double endPrice = close[endIdx];
-   double change = (endPrice - startPrice) / startPrice * 100.0;
-   
-   if(change > 2.0)       // صعود أكثر من 2%
-      return PATTERN_BULLISH;
-   else if(change < -2.0) // هبوط أكثر من 2%
-      return PATTERN_BEARISH;
-   else
-      return PATTERN_NEUTRAL;
+    return (barCount >= m_minBars && barCount <= m_maxBars && priceRange > 0.0);
 }
 
 //+------------------------------------------------------------------+
-//| فحص الاتجاه الصاعد                                              |
+//| التحقق من صحة الإطار الزمني                                    |
 //+------------------------------------------------------------------+
-bool CChartPattern::IsUptrend(const double &close[], const int startIdx, const int period = 20)
+bool CChartPattern::ValidateTimeframe(ENUM_TIMEFRAMES timeframe)
 {
-   return DetectTrend(close, startIdx - period, startIdx) == PATTERN_BULLISH;
+    // قبول جميع الأطر الزمنية الأساسية
+    switch(timeframe)
+    {
+        case PERIOD_M1:
+        case PERIOD_M5:
+        case PERIOD_M15:
+        case PERIOD_M30:
+        case PERIOD_H1:
+        case PERIOD_H4:
+        case PERIOD_D1:
+        case PERIOD_W1:
+        case PERIOD_MN1:
+            return true;
+        default:
+            return false;
+    }
 }
 
 //+------------------------------------------------------------------+
-//| فحص الاتجاه الهابط                                              |
+//| التحقق من ظروف السوق                                           |
 //+------------------------------------------------------------------+
-bool CChartPattern::IsDowntrend(const double &close[], const int startIdx, const int period = 20)
+bool CChartPattern::ValidateMarketConditions(const double &close[], int period)
 {
-   return DetectTrend(close, startIdx - period, startIdx) == PATTERN_BEARISH;
-}
-
-//+------------------------------------------------------------------+
-//| فحص القمة المحلية                                               |
-//+------------------------------------------------------------------+
-bool CChartPattern::IsLocalHigh(const double &high[], const int idx, const int lookback = 2)
-{
-   if(idx < lookback || idx >= ArraySize(high) - lookback)
-      return false;
-   
-   for(int i = 1; i <= lookback; i++)
-   {
-      if(high[idx] <= high[idx - i] || high[idx] <= high[idx + i])
-         return false;
-   }
-   
-   return true;
-}
-
-//+------------------------------------------------------------------+
-//| فحص القاع المحلي                                                |
-//+------------------------------------------------------------------+
-bool CChartPattern::IsLocalLow(const double &low[], const int idx, const int lookback = 2)
-{
-   if(idx < lookback || idx >= ArraySize(low) - lookback)
-      return false;
-   
-   for(int i = 1; i <= lookback; i++)
-   {
-      if(low[idx] >= low[idx - i] || low[idx] >= low[idx + i])
-         return false;
-   }
-   
-   return true;
-}
-
-//+------------------------------------------------------------------+
-//| فحص مناسبة الإطار الزمني                                        |
-//+------------------------------------------------------------------+
-bool CChartPattern::IsTimeframeAppropriate(const ENUM_TIMEFRAMES tf, const int minBars)
-{
-   // يمكن تخصيص هذه الدالة حسب نوع النمط
-   return true;
-}
-
-//+------------------------------------------------------------------+
-//| حساب فترة البحث المثلى                                          |
-//+------------------------------------------------------------------+
-int CChartPattern::CalculateOptimalLookback(const ENUM_TIMEFRAMES tf)
-{
-   switch(tf)
-   {
-      case PERIOD_M1:
-      case PERIOD_M5:  return 50;
-      case PERIOD_M15:
-      case PERIOD_M30: return 100;
-      case PERIOD_H1:  return 150;
-      case PERIOD_H4:  return 200;
-      case PERIOD_D1:  return 250;
-      default:         return 100;
-   }
-}
-
-//+------------------------------------------------------------------+
-//| التحقق من صحة أحجام المصفوفات                                   |
-//+------------------------------------------------------------------+
-bool CChartPattern::ValidateArraySizes(const double &open[], const double &high[], 
-                                      const double &low[], const double &close[], 
-                                      const long &volume[])
-{
-   int size = ArraySize(open);
-   return (ArraySize(high) == size && 
-           ArraySize(low) == size && 
-           ArraySize(close) == size && 
-           (ArraySize(volume) == size || ArraySize(volume) == 0));
-}
-
-//+------------------------------------------------------------------+
-//| التحقق من صحة المؤشر                                            |
-//+------------------------------------------------------------------+
-bool CChartPattern::ValidateIndexRange(const int idx, const int arraySize)
-{
-   return (idx >= 0 && idx < arraySize);
-}
-
-//+------------------------------------------------------------------+
-//| تحديث إحصائيات الكشف                                            |
-//+------------------------------------------------------------------+
-void CChartPattern::UpdateDetectionStats(const bool patternFound)
-{
-   if(patternFound)
-   {
-      m_detectedPatterns++;
-      m_lastDetectionTime = TimeCurrent();
-   }
-}
-
-//+------------------------------------------------------------------+
-//| تحديث إحصائيات النجاح                                           |
-//+------------------------------------------------------------------+
-void CChartPattern::UpdateSuccessStats(const bool patternSuccessful)
-{
-   if(patternSuccessful)
-      m_successfulPatterns++;
-}
-
-//+------------------------------------------------------------------+
-//| التحقق من صحة التهيئة                                           |
-//+------------------------------------------------------------------+
-bool CChartPattern::ValidateInitialization()
-{
-   return (m_initialized && 
-           StringLen(m_symbol) > 0 && 
-           IsValidTimeframe(m_timeframe));
+    if(period <= 0 || period > ArraySize(close))
+        return false;
+    
+    // التحقق من وجود تقلبات كافية
+    double maxPrice = close[0];
+    double minPrice = close[0];
+    
+    for(int i = 1; i < period; i++)
+    {
+        maxPrice = MathMax(maxPrice, close[i]);
+        minPrice = MathMin(minPrice, close[i]);
+    }
+    
+    double volatility = (maxPrice - minPrice) / minPrice;
+    
+    // يجب أن تكون التقلبات أكبر من الحد الأدنى
+    return (volatility > 0.01); // 1% كحد أدنى للتقلبات
 }

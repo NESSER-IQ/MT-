@@ -1,1094 +1,658 @@
 //+------------------------------------------------------------------+
-//|                                                ChartSignal.mqh |
-//|                                 إشارات أنماط المخططات          |
-//|                         حقوق النشر 2025, مكتبة أنماط الشموع اليابانية |
+//|                                                     ChartSignal.mqh |
+//|                  حقوق النشر 2025, مكتبة أنماط الشموع اليابانية |
+//|                                       https://www.yourwebsite.com |
 //+------------------------------------------------------------------+
 #property copyright "حقوق النشر 2025, مكتبة أنماط الشموع اليابانية"
 #property link      "https://www.yourwebsite.com"
 #property version   "1.00"
 #property strict
 
+#include "../../CandlePatterns/Base/PatternSignal.mqh"
 #include "ChartPattern.mqh"
-#include "..\..\CandlePatterns\Base\PatternSignal.mqh"
+#include "ChartUtils.mqh"
 
 //+------------------------------------------------------------------+
-//| تعدادات إشارات المخططات                                         |
+//| تعدادات حالة الإشارة                                            |
 //+------------------------------------------------------------------+
-enum ENUM_CHART_SIGNAL_TYPE
+enum ENUM_SIGNAL_STATUS
 {
-   CHART_SIGNAL_ENTRY,          // إشارة دخول
-   CHART_SIGNAL_EXIT,           // إشارة خروج
-   CHART_SIGNAL_REVERSAL,       // إشارة انعكاس
-   CHART_SIGNAL_CONTINUATION,   // إشارة استمرار
-   CHART_SIGNAL_BREAKOUT,       // إشارة اختراق
-   CHART_SIGNAL_PULLBACK,       // إشارة تراجع
-   CHART_SIGNAL_WARNING,        // إشارة تحذير
-   CHART_SIGNAL_CONFIRMATION    // إشارة تأكيد
+    SIGNAL_STATUS_PENDING,      // في الانتظار
+    SIGNAL_STATUS_ACTIVE,       // نشطة
+    SIGNAL_STATUS_TRIGGERED,    // مفعلة
+    SIGNAL_STATUS_COMPLETED,    // مكتملة
+    SIGNAL_STATUS_CANCELLED,    // ملغاة
+    SIGNAL_STATUS_EXPIRED,      // منتهية الصلاحية
+    SIGNAL_STATUS_FAILED        // فاشلة
 };
 
-enum ENUM_CHART_SIGNAL_STRENGTH
+enum ENUM_SIGNAL_ACTION
 {
-   CHART_SIGNAL_WEAK,           // ضعيفة
-   CHART_SIGNAL_MODERATE,       // متوسطة
-   CHART_SIGNAL_STRONG,         // قوية
-   CHART_SIGNAL_VERY_STRONG     // قوية جداً
+    SIGNAL_ACTION_BUY,          // شراء
+    SIGNAL_ACTION_SELL,         // بيع
+    SIGNAL_ACTION_CLOSE_BUY,    // إغلاق الشراء
+    SIGNAL_ACTION_CLOSE_SELL,   // إغلاق البيع
+    SIGNAL_ACTION_MODIFY,       // تعديل
+    SIGNAL_ACTION_WAIT,         // انتظار
+    SIGNAL_ACTION_ALERT         // تنبيه فقط
 };
 
-enum ENUM_CHART_SIGNAL_URGENCY
+enum ENUM_SIGNAL_URGENCY
 {
-   CHART_SIGNAL_LOW_URGENCY,    // عجالة منخفضة
-   CHART_SIGNAL_MEDIUM_URGENCY, // عجالة متوسطة
-   CHART_SIGNAL_HIGH_URGENCY,   // عجالة عالية
-   CHART_SIGNAL_IMMEDIATE       // فوري
-};
-
-//+------------------------------------------------------------------+
-//| هيكل إشارة المخطط                                               |
-//+------------------------------------------------------------------+
-struct SChartSignal
-{
-   string            signalId;           // معرف الإشارة
-   ENUM_CHART_SIGNAL_TYPE signalType;    // نوع الإشارة
-   ENUM_PATTERN_DIRECTION direction;     // اتجاه الإشارة
-   ENUM_CHART_SIGNAL_STRENGTH strength;  // قوة الإشارة
-   ENUM_CHART_SIGNAL_URGENCY urgency;    // درجة العجالة
-   
-   string            patternName;        // اسم النمط
-   double            triggerPrice;       // سعر التفعيل
-   datetime          signalTime;         // وقت الإشارة
-   datetime          expirationTime;     // وقت انتهاء الصلاحية
-   
-   // مستويات التداول
-   double            entryPrice;         // سعر الدخول
-   double            stopLoss;           // وقف الخسارة
-   double            takeProfit1;        // هدف ربح 1
-   double            takeProfit2;        // هدف ربح 2
-   double            takeProfit3;        // هدف ربح 3
-   
-   // معلومات المخاطر
-   double            riskRewardRatio;    // نسبة المخاطر للعائد
-   double            probability;        // احتمالية النجاح
-   double            confidence;         // مستوى الثقة
-   
-   // معلومات السياق
-   string            marketCondition;    // حالة السوق
-   string            timeframeAnalysis;  // تحليل الإطار الزمني
-   bool              hasConfirmation;    // تأكيد من مؤشرات أخرى
-   
-   // معلومات إضافية
-   string            description;        // وصف الإشارة
-   string            actionRequired;     // الإجراء المطلوب
-   string            notes;              // ملاحظات
-   bool              isActive;           // الإشارة نشطة
-   bool              wasTriggered;       // تم تفعيل الإشارة
-   
-   SChartSignal()
-   {
-      signalId = "";
-      signalType = CHART_SIGNAL_ENTRY;
-      direction = PATTERN_NEUTRAL;
-      strength = CHART_SIGNAL_WEAK;
-      urgency = CHART_SIGNAL_LOW_URGENCY;
-      
-      patternName = "";
-      triggerPrice = 0.0;
-      signalTime = 0;
-      expirationTime = 0;
-      
-      entryPrice = 0.0;
-      stopLoss = 0.0;
-      takeProfit1 = 0.0;
-      takeProfit2 = 0.0;
-      takeProfit3 = 0.0;
-      
-      riskRewardRatio = 0.0;
-      probability = 0.0;
-      confidence = 0.0;
-      
-      marketCondition = "";
-      timeframeAnalysis = "";
-      hasConfirmation = false;
-      
-      description = "";
-      actionRequired = "";
-      notes = "";
-      isActive = false;
-      wasTriggered = false;
-   }
+    URGENCY_LOW = 1,            // عاجلة منخفضة
+    URGENCY_NORMAL = 2,         // عاجلة عادية
+    URGENCY_HIGH = 3,           // عاجلة عالية
+    URGENCY_CRITICAL = 4        // عاجلة حرجة
 };
 
 //+------------------------------------------------------------------+
-//| هيكل مجموعة الإشارات                                            |
+//| هيكل إشارة المخطط المحسنة                                       |
 //+------------------------------------------------------------------+
-struct SSignalGroup
+struct SChartSignalInfo
 {
-   string            groupId;            // معرف المجموعة
-   string            groupName;          // اسم المجموعة
-   ENUM_PATTERN_DIRECTION groupDirection; // اتجاه المجموعة
-   
-   SChartSignal      signals[];          // الإشارات في المجموعة
-   int               signalCount;        // عدد الإشارات
-   
-   double            combinedProbability; // الاحتمالية المجمعة
-   double            combinedConfidence;  // الثقة المجمعة
-   ENUM_CHART_SIGNAL_STRENGTH combinedStrength; // القوة المجمعة
-   
-   datetime          firstSignalTime;    // وقت أول إشارة
-   datetime          lastSignalTime;     // وقت آخر إشارة
-   bool              isConsensus;        // إجماع الإشارات
-   
-   SSignalGroup()
-   {
-      groupId = "";
-      groupName = "";
-      groupDirection = PATTERN_NEUTRAL;
-      signalCount = 0;
-      combinedProbability = 0.0;
-      combinedConfidence = 0.0;
-      combinedStrength = CHART_SIGNAL_WEAK;
-      firstSignalTime = 0;
-      lastSignalTime = 0;
-      isConsensus = false;
-      ArrayResize(signals, 0);
-   }
+    // معلومات أساسية
+    ulong signalId;                     // معرف الإشارة
+    string patternName;                 // اسم النمط
+    string symbolName;                  // اسم الرمز
+    ENUM_TIMEFRAMES timeframe;          // الإطار الزمني
+    datetime signalTime;                // وقت الإشارة
+    datetime expiryTime;                // وقت انتهاء الصلاحية
+    
+    // معلومات النمط
+    ENUM_CHART_PATTERN_NAME patternType;    // نوع النمط
+    ENUM_PATTERN_DIRECTION direction;       // الاتجاه
+    ENUM_SIGNAL_STATUS status;              // حالة الإشارة
+    ENUM_SIGNAL_ACTION action;              // العمل المطلوب
+    ENUM_SIGNAL_URGENCY urgency;            // درجة الإلحاح
+    
+    // بيانات التداول
+    double entryPrice;                  // سعر الدخول
+    double currentPrice;                // السعر الحالي
+    double stopLoss;                    // وقف الخسارة
+    double takeProfit1;                 // الهدف الأول
+    double takeProfit2;                 // الهدف الثاني
+    double takeProfit3;                 // الهدف الثالث
+    double trailingStop;                // وقف متحرك
+    
+    // بيانات الجودة
+    double confidence;                  // درجة الثقة (0-1)
+    double reliability;                 // الموثوقية (0-1)
+    double strength;                    // قوة النمط (0-1)
+    double riskReward;                  // نسبة المخاطرة للعائد
+    double successProbability;          // احتمالية النجاح
+    
+    // بيانات التأكيد
+    bool volumeConfirmed;               // تأكيد الحجم
+    bool trendConfirmed;                // تأكيد الاتجاه
+    bool candleConfirmed;               // تأكيد الشموع
+    bool priceActionConfirmed;          // تأكيد حركة السعر
+    bool multiTimeframeConfirmed;       // تأكيد متعدد الإطارات
+    
+    // معلومات الأداء
+    double maxProfit;                   // أقصى ربح محقق
+    double maxLoss;                     // أقصى خسارة محققة
+    double currentPnL;                  // الربح/الخسارة الحالية
+    double realizedPnL;                 // الربح/الخسارة المحققة
+    int barsActive;                     // عدد الشموع النشطة
+    datetime lastUpdate;                // آخر تحديث
+    
+    // معلومات إضافية
+    string description;                 // وصف الإشارة
+    string notes;                       // ملاحظات
+    string warnings;                    // تحذيرات
+    int magicNumber;                    // الرقم السحري
+    ulong positionTicket;               // رقم المركز
+    
+    // بيانات إحصائية
+    double volatility;                  // التقلبات
+    double volume;                      // حجم التداول
+    double spread;                      // السبريد
+    double swapLong;                    // سواب الشراء
+    double swapShort;                   // سواب البيع
+    
+    SChartSignalInfo()
+    {
+        signalId = 0;
+        patternName = "";
+        symbolName = "";
+        timeframe = PERIOD_CURRENT;
+        signalTime = 0;
+        expiryTime = 0;
+        patternType = CHART_HEAD_SHOULDERS;
+        direction = PATTERN_NEUTRAL;
+        status = SIGNAL_STATUS_PENDING;
+        action = SIGNAL_ACTION_WAIT;
+        urgency = URGENCY_NORMAL;
+        entryPrice = 0.0;
+        currentPrice = 0.0;
+        stopLoss = 0.0;
+        takeProfit1 = 0.0;
+        takeProfit2 = 0.0;
+        takeProfit3 = 0.0;
+        trailingStop = 0.0;
+        confidence = 0.0;
+        reliability = 0.0;
+        strength = 0.0;
+        riskReward = 0.0;
+        successProbability = 0.0;
+        volumeConfirmed = false;
+        trendConfirmed = false;
+        candleConfirmed = false;
+        priceActionConfirmed = false;
+        multiTimeframeConfirmed = false;
+        maxProfit = 0.0;
+        maxLoss = 0.0;
+        currentPnL = 0.0;
+        realizedPnL = 0.0;
+        barsActive = 0;
+        lastUpdate = 0;
+        description = "";
+        notes = "";
+        warnings = "";
+        magicNumber = 0;
+        positionTicket = 0;
+        volatility = 0.0;
+        volume = 0.0;
+        spread = 0.0;
+        swapLong = 0.0;
+        swapShort = 0.0;
+    }
 };
 
 //+------------------------------------------------------------------+
-//| فئة إشارات أنماط المخططات                                       |
+//| فئة إدارة إشارات أنماط المخططات                                 |
 //+------------------------------------------------------------------+
-class CChartSignal
+class CChartSignalManager
 {
 private:
-   // إعدادات المولد
-   string            m_symbol;
-   ENUM_TIMEFRAMES   m_timeframe;
-   bool              m_initialized;
-   
-   // معاملات توليد الإشارات
-   double            m_minProbability;      // أقل احتمالية مقبولة
-   double            m_minConfidence;       // أقل ثقة مقبولة
-   double            m_maxRiskReward;       // أقصى نسبة مخاطر مقبولة
-   bool              m_requireConfirmation; // يتطلب تأكيد
-   bool              m_combineSignals;      // دمج الإشارات
-   
-   // قوائم الإشارات
-   SChartSignal      m_activeSignals[];     // الإشارات النشطة
-   SChartSignal      m_historicalSignals[]; // الإشارات التاريخية
-   SSignalGroup      m_signalGroups[];      // مجموعات الإشارات
-   
-   // إحصائيات الأداء
-   int               m_totalSignals;
-   int               m_successfulSignals;
-   int               m_triggeredSignals;
-   double            m_avgProfitLoss;
-   double            m_winRate;
-   
+    // مصفوفة الإشارات
+    SChartSignalInfo   m_signals[];         // الإشارات النشطة
+    int                m_signalCount;       // عدد الإشارات
+    int                m_maxSignals;        // الحد الأقصى للإشارات
+    ulong              m_nextSignalId;      // معرف الإشارة التالي
+    
+    // إدارة الإشارات
+    CPatternSignalManager* m_patternSignalManager;  // مدير إشارات الأنماط
+    
+    // إعدادات النظام
+    bool               m_enabled;           // تفعيل النظام
+    bool               m_autoTrading;       // التداول التلقائي
+    bool               m_alertsEnabled;     // تفعيل التنبيهات
+    int                m_maxSignalsPerSymbol;   // الحد الأقصى للإشارات لكل رمز
+    int                m_signalExpiryBars;  // انتهاء الصلاحية بالشموع
+    
+    // إحصائيات
+    int                m_totalSignals;      // إجمالي الإشارات
+    int                m_activeSignals;     // الإشارات النشطة
+    int                m_successfulSignals; // الإشارات الناجحة
+    int                m_failedSignals;     // الإشارات الفاشلة
+    double             m_totalPnL;          // إجمالي الربح/الخسارة
+    double             m_successRate;       // معدل النجاح
+    
+    // أداء النظام
+    datetime           m_lastUpdate;        // آخر تحديث
+    int                m_updateCount;       // عدد التحديثات
+    bool               m_isProcessing;      // حالة المعالجة
+    
 public:
-   // المنشئ والهادم
-                     CChartSignal();
-                     ~CChartSignal();
-   
-   // تهيئة المولد
-   bool              Initialize(const string symbol = "", const ENUM_TIMEFRAMES timeframe = PERIOD_CURRENT);
-   void              Deinitialize();
-   
-   // إعداد المعاملات
-   void              SetSignalParameters(const double minProbability, const double minConfidence,
-                                       const double maxRiskReward, const bool requireConfirmation = true,
-                                       const bool combineSignals = true);
-   
-   // توليد الإشارات
-   int               GenerateSignalsFromPattern(const SChartPatternResult &patternResult,
-                                              SChartSignal &signals[]);
-   
-   bool              CreateEntrySignal(const SChartPatternResult &patternResult, SChartSignal &signal);
-   bool              CreateExitSignal(const SChartPatternResult &patternResult, SChartSignal &signal);
-   bool              CreateBreakoutSignal(const SChartPatternResult &patternResult, SChartSignal &signal);
-   bool              CreateReversalSignal(const SChartPatternResult &patternResult, SChartSignal &signal);
-   
-   // إدارة الإشارات
-   bool              AddSignal(const SChartSignal &signal);
-   bool              UpdateSignal(const string signalId, const SChartSignal &updatedSignal);
-   bool              RemoveSignal(const string signalId);
-   void              ClearExpiredSignals();
-   
-   // تجميع الإشارات
-   int               GroupSignalsByDirection(SSignalGroup &groups[]);
-   int               GroupSignalsByTimeframe(SSignalGroup &groups[]);
-   int               GroupSignalsByPattern(SSignalGroup &groups[]);
-   bool              CreateSignalGroup(const SChartSignal &signals[], SSignalGroup &group);
-   
-   // تحليل الإشارات
-   ENUM_CHART_SIGNAL_STRENGTH CalculateSignalStrength(const SChartSignal &signal);
-   ENUM_CHART_SIGNAL_URGENCY CalculateSignalUrgency(const SChartSignal &signal);
-   double            CalculateProbability(const SChartPatternResult &patternResult);
-   double            CalculateRiskReward(const SChartSignal &signal);
-   
-   // إدارة المخاطر
-   bool              ValidateRiskParameters(const SChartSignal &signal);
-   void              OptimizeStopLoss(SChartSignal &signal);
-   void              OptimizeTakeProfit(SChartSignal &signal);
-   void              CalculatePositionSize(SChartSignal &signal, const double accountBalance,
-                                         const double riskPercent);
-   
-   // مراقبة الإشارات
-   int               MonitorActiveSignals(const double currentPrice);
-   bool              CheckSignalTrigger(SChartSignal &signal, const double currentPrice);
-   void              UpdateSignalStatus(SChartSignal &signal, const double currentPrice);
-   
-   // تصفية الإشارات
-   int               FilterSignalsByStrength(const ENUM_CHART_SIGNAL_STRENGTH minStrength,
-                                           SChartSignal &filteredSignals[]);
-   int               FilterSignalsByDirection(const ENUM_PATTERN_DIRECTION direction,
-                                            SChartSignal &filteredSignals[]);
-   int               FilterSignalsByTimeframe(const datetime startTime, const datetime endTime,
-                                            SChartSignal &filteredSignals[]);
-   
-   // الوصول للبيانات
-   int               GetActiveSignalsCount() const { return ArraySize(m_activeSignals); }
-   int               GetHistoricalSignalsCount() const { return ArraySize(m_historicalSignals); }
-   int               GetSignalGroupsCount() const { return ArraySize(m_signalGroups); }
-   
-   SChartSignal      GetActiveSignal(const int index) const;
-   SChartSignal      GetHistoricalSignal(const int index) const;
-   SSignalGroup      GetSignalGroup(const int index) const;
-   SChartSignal      FindSignalById(const string signalId);
-   
-   // إحصائيات الأداء
-   double            GetWinRate() const { return m_winRate; }
-   double            GetAverageProfitLoss() const { return m_avgProfitLoss; }
-   int               GetTotalSignals() const { return m_totalSignals; }
-   int               GetSuccessfulSignals() const { return m_successfulSignals; }
-   
-   // تقارير الأداء
-   string            GeneratePerformanceReport();
-   string            GenerateSignalSummary(const SChartSignal &signal);
-   string            GenerateGroupSummary(const SSignalGroup &group);
-   
-protected:
-   // دوال مساعدة
-   string            GenerateSignalId();
-   bool              ValidateSignal(const SChartSignal &signal);
-   void              CalculateSignalExpiration(SChartSignal &signal);
-   
-   // تحديث الإحصائيات
-   void              UpdatePerformanceStats();
-   void              RecordSignalOutcome(const SChartSignal &signal, const bool success, 
-                                       const double profitLoss);
-   
-   // دوال التأكيد
-   bool              HasTechnicalConfirmation(const SChartPatternResult &patternResult);
-   bool              HasVolumeConfirmation(const SChartPatternResult &patternResult);
-   bool              HasMomentumConfirmation(const SChartPatternResult &patternResult);
+    // المنشئ والهادم
+    CChartSignalManager(int maxSignals = 1000);
+    ~CChartSignalManager();
+    
+    // دوال التهيئة والإعداد
+    bool               Initialize();
+    void               Deinitialize();
+    void               SetEnabled(bool enabled) { m_enabled = enabled; }
+    void               SetAutoTrading(bool enabled) { m_autoTrading = enabled; }
+    void               SetAlertsEnabled(bool enabled) { m_alertsEnabled = enabled; }
+    void               SetMaxSignalsPerSymbol(int max) { m_maxSignalsPerSymbol = MathMax(1, max); }
+    void               SetSignalExpiryBars(int bars) { m_signalExpiryBars = MathMax(1, bars); }
+    
+    // دوال إدارة الإشارات
+    ulong              AddSignal(const SChartPatternSignal &patternSignal);
+    ulong              AddSignal(const SChartSignalInfo &signal);
+    bool               RemoveSignal(ulong signalId);
+    bool               UpdateSignal(ulong signalId, const SChartSignalInfo &updatedSignal);
+    bool               GetSignal(ulong signalId, SChartSignalInfo &signal);
+    int                GetSignalsCount() const { return m_signalCount; }
+    int                GetActiveSignalsCount();
+    
+    // دوال البحث والتصفية
+    int                FindSignalsBySymbol(const string symbol, ulong &signalIds[]);
+    int                FindSignalsByPattern(const string patternName, ulong &signalIds[]);
+    int                FindSignalsByStatus(ENUM_SIGNAL_STATUS status, ulong &signalIds[]);
+    int                FindSignalsByTimeframe(ENUM_TIMEFRAMES timeframe, ulong &signalIds[]);
+    int                FindSignalsByDirection(ENUM_PATTERN_DIRECTION direction, ulong &signalIds[]);
+    ulong              FindBestSignal(const string symbol = "");
+    ulong              FindMostUrgentSignal();
+    
+    // دوال حالة الإشارة
+    bool               ActivateSignal(ulong signalId);
+    bool               TriggerSignal(ulong signalId);
+    bool               CompleteSignal(ulong signalId, double finalPnL);
+    bool               CancelSignal(ulong signalId, const string reason = "");
+    bool               ExpireSignal(ulong signalId);
+    bool               FailSignal(ulong signalId, const string reason = "");
+    
+    // دوال تحديث الإشارات
+    void               UpdateAllSignals();
+    void               UpdateSignalPrices();
+    void               UpdateSignalStatus();
+    void               CheckSignalConditions();
+    void               CleanupExpiredSignals();
+    void               ProcessTrailingStops();
+    
+    // دوال التحليل والمراقبة
+    bool               IsSignalValid(ulong signalId);
+    bool               ShouldSignalExpire(ulong signalId);
+    double             CalculateSignalPnL(ulong signalId);
+    double             CalculateSignalRisk(ulong signalId);
+    double             GetSignalProgress(ulong signalId);
+    ENUM_SIGNAL_URGENCY CalculateSignalUrgency(ulong signalId);
+    
+    // دوال التداول
+    bool               ExecuteSignal(ulong signalId);
+    bool               CloseSignalPosition(ulong signalId);
+    bool               ModifySignalStops(ulong signalId, double newSL, double newTP);
+    bool               SetTrailingStop(ulong signalId, double distance);
+    
+    // دوال التنبيهات
+    void               SendSignalAlert(ulong signalId, const string message);
+    void               SendUrgentAlert(ulong signalId);
+    void               SendSuccessAlert(ulong signalId);
+    void               SendFailureAlert(ulong signalId);
+    
+    // دوال الإحصائيات
+    void               UpdateStatistics();
+    void               ResetStatistics();
+    double             GetSuccessRate() const { return m_successRate; }
+    double             GetTotalPnL() const { return m_totalPnL; }
+    int                GetTotalSignalsCount() const { return m_totalSignals; }
+    int                GetSuccessfulSignalsCount() const { return m_successfulSignals; }
+    int                GetFailedSignalsCount() const { return m_failedSignals; }
+    
+    // دوال التقارير
+    void               PrintSignalsReport();
+    void               PrintStatisticsReport();
+    string             GetSignalString(ulong signalId);
+    string             GetStatisticsString();
+    void               SaveSignalsToFile(const string fileName);
+    bool               LoadSignalsFromFile(const string fileName);
+    
+    // دوال الأداء والتحسين
+    void               OptimizeMemoryUsage();
+    void               CompactSignalArray();
+    void               SortSignalsByPriority();
+    void               SortSignalsByTime();
+    void               SortSignalsByReliability();
+    
+    // دوال الأحداث
+    void               OnTick();
+    void               OnNewBar();
+    void               OnTimer();
+    void               OnTrade();
+    
+    // دوال التحقق والتشخيص
+    bool               ValidateSignal(const SChartSignalInfo &signal);
+    bool               CheckSystemHealth();
+    void               RunDiagnostics();
+    string             GetLastError();
+    
+private:
+    // دوال مساعدة
+    int                FindSignalIndex(ulong signalId);
+    bool               IsSignalSlotAvailable();
+    void               RemoveSignalAtIndex(int index);
+    void               ShiftSignalsDown(int startIndex);
+    
+    // دوال التحقق
+    bool               ValidateSignalData(const SChartSignalInfo &signal);
+    bool               CheckSignalConflicts(const SChartSignalInfo &signal);
+    bool               IsSymbolOverloaded(const string symbol);
+    
+    // دوال الحساب
+    double             CalculateAverageReliability();
+    double             CalculateAverageRiskReward();
+    datetime           CalculateAverageSignalDuration();
+    
+    // دوال التحديث
+    void               UpdateSignalProgress(int index);
+    void               UpdateSignalMetrics(int index);
+    void               CheckSignalExpiry(int index);
+    
+    // دوال الإشارات الفرعية
+    bool               ConvertPatternSignal(const SChartPatternSignal &patternSignal, 
+                                          SChartSignalInfo &signalInfo);
+    void               FillSignalDefaults(SChartSignalInfo &signal);
+    
+    // متغيرات خاصة
+    string             m_lastError;
+    int                m_errorCount;
+    datetime           m_lastDiagnostic;
 };
 
 //+------------------------------------------------------------------+
-//| المنشئ                                                           |
+//| منشئ فئة إدارة الإشارات                                          |
 //+------------------------------------------------------------------+
-CChartSignal::CChartSignal()
+CChartSignalManager::CChartSignalManager(int maxSignals)
 {
-   m_symbol = "";
-   m_timeframe = PERIOD_CURRENT;
-   m_initialized = false;
-   
-   // المعاملات الافتراضية
-   m_minProbability = 0.6;
-   m_minConfidence = 0.5;
-   m_maxRiskReward = 0.5; // مخاطرة 50% من العائد المتوقع
-   m_requireConfirmation = true;
-   m_combineSignals = true;
-   
-   // تهيئة المصفوفات
-   ArrayResize(m_activeSignals, 0);
-   ArrayResize(m_historicalSignals, 0);
-   ArrayResize(m_signalGroups, 0);
-   
-   // إحصائيات
-   m_totalSignals = 0;
-   m_successfulSignals = 0;
-   m_triggeredSignals = 0;
-   m_avgProfitLoss = 0.0;
-   m_winRate = 0.0;
+    m_maxSignals = MathMax(10, maxSignals);
+    m_signalCount = 0;
+    m_nextSignalId = 1;
+    
+    // تهيئة المصفوفات
+    ArrayResize(m_signals, m_maxSignals);
+    
+    // إعدادات افتراضية
+    m_enabled = true;
+    m_autoTrading = false;
+    m_alertsEnabled = true;
+    m_maxSignalsPerSymbol = 5;
+    m_signalExpiryBars = 50;
+    
+    // إحصائيات
+    m_totalSignals = 0;
+    m_activeSignals = 0;
+    m_successfulSignals = 0;
+    m_failedSignals = 0;
+    m_totalPnL = 0.0;
+    m_successRate = 0.0;
+    
+    // متغيرات النظام
+    m_lastUpdate = 0;
+    m_updateCount = 0;
+    m_isProcessing = false;
+    m_lastError = "";
+    m_errorCount = 0;
+    m_lastDiagnostic = 0;
+    
+    // إنشاء مدير إشارات الأنماط
+    m_patternSignalManager = new CPatternSignalManager(maxSignals);
 }
 
 //+------------------------------------------------------------------+
-//| الهادم                                                           |
+//| هادم فئة إدارة الإشارات                                          |
 //+------------------------------------------------------------------+
-CChartSignal::~CChartSignal()
+CChartSignalManager::~CChartSignalManager()
 {
-   Deinitialize();
+    Deinitialize();
+    
+    if(m_patternSignalManager != NULL)
+    {
+        delete m_patternSignalManager;
+        m_patternSignalManager = NULL;
+    }
 }
 
 //+------------------------------------------------------------------+
-//| تهيئة المولد                                                     |
+//| تهيئة مدير الإشارات                                             |
 //+------------------------------------------------------------------+
-bool CChartSignal::Initialize(const string symbol = "", const ENUM_TIMEFRAMES timeframe = PERIOD_CURRENT)
+bool CChartSignalManager::Initialize()
 {
-   m_symbol = (symbol == "") ? Symbol() : symbol;
-   m_timeframe = (timeframe == PERIOD_CURRENT) ? Period() : timeframe;
-   
-   m_initialized = true;
-   Print("تم تهيئة مولد إشارات المخططات للرمز: ", m_symbol, " الإطار الزمني: ", EnumToString(m_timeframe));
-   
-   return true;
+    if(m_patternSignalManager != NULL)
+    {
+        if(!m_patternSignalManager.Initialize())
+            return false;
+    }
+    
+    // تنظيف البيانات السابقة
+    // تهيئة مصفوفة الإشارات عبر إعادة تغيير الحجم
+    ArrayResize(m_signals, 0);
+    ArrayResize(m_signals, m_maxSignals);
+    
+    // تهيئة كل عنصر في المصفوفة بشكل فردي
+    for(int i = 0; i < m_maxSignals; i++)
+    {
+        m_signals[i] = SChartSignalInfo(); // استدعاء المنشئ الافتراضي
+    }
+    
+    m_signalCount = 0;
+    m_nextSignalId = 1;
+    
+    return true;
 }
 
 //+------------------------------------------------------------------+
-//| إنهاء المولد                                                    |
+//| إنهاء مدير الإشارات                                             |
 //+------------------------------------------------------------------+
-void CChartSignal::Deinitialize()
+void CChartSignalManager::Deinitialize()
 {
-   if(m_initialized)
-   {
-      ArrayFree(m_activeSignals);
-      ArrayFree(m_historicalSignals);
-      ArrayFree(m_signalGroups);
-      
-      m_initialized = false;
-   }
+    if(m_patternSignalManager != NULL)
+        m_patternSignalManager.Deinitialize();
+    
+    // تنظيف المصفوفات
+    ArrayResize(m_signals, 0);
+    m_signalCount = 0;
 }
 
 //+------------------------------------------------------------------+
-//| تحديد معاملات الإشارة                                           |
+//| إضافة إشارة جديدة من نمط مخطط                                   |
 //+------------------------------------------------------------------+
-void CChartSignal::SetSignalParameters(const double minProbability, const double minConfidence,
-                                       const double maxRiskReward, const bool requireConfirmation = true,
-                                       const bool combineSignals = true)
+ulong CChartSignalManager::AddSignal(const SChartPatternSignal &patternSignal)
 {
-   m_minProbability = MathMax(0.0, MathMin(1.0, minProbability));
-   m_minConfidence = MathMax(0.0, MathMin(1.0, minConfidence));
-   m_maxRiskReward = MathMax(0.1, maxRiskReward);
-   m_requireConfirmation = requireConfirmation;
-   m_combineSignals = combineSignals;
+    if(!m_enabled || !IsSignalSlotAvailable())
+        return 0;
+    
+    SChartSignalInfo signal;
+    if(!ConvertPatternSignal(patternSignal, signal))
+        return 0;
+    
+    return AddSignal(signal);
 }
 
 //+------------------------------------------------------------------+
-//| توليد إشارات من النمط                                           |
+//| إضافة إشارة جديدة                                               |
 //+------------------------------------------------------------------+
-int CChartSignal::GenerateSignalsFromPattern(const SChartPatternResult &patternResult,
-                                            SChartSignal &signals[])
+ulong CChartSignalManager::AddSignal(const SChartSignalInfo &signal)
 {
-   ArrayResize(signals, 0);
-   
-   if(!m_initialized || !patternResult.isCompleted)
-      return 0;
-   
-   // فحص إذا كان النمط يستوفي المعايير الأساسية
-   if(patternResult.confidence < m_minConfidence)
-      return 0;
-   
-   // توليد الإشارات المختلفة
-   SChartSignal tempSignals[];
-   ArrayResize(tempSignals, 0);
-   
-   // إشارة دخول
-   SChartSignal entrySignal;
-   if(CreateEntrySignal(patternResult, entrySignal))
-   {
-      int size = ArraySize(tempSignals);
-      ArrayResize(tempSignals, size + 1);
-      tempSignals[size] = entrySignal;
-   }
-   
-   // إشارة اختراق إذا كان النمط يدعم ذلك
-   if(patternResult.patternType == CHART_PATTERN_CONTINUATION || 
-      patternResult.patternType == CHART_PATTERN_BILATERAL)
-   {
-      SChartSignal breakoutSignal;
-      if(CreateBreakoutSignal(patternResult, breakoutSignal))
-      {
-         int size = ArraySize(tempSignals);
-         ArrayResize(tempSignals, size + 1);
-         tempSignals[size] = breakoutSignal;
-      }
-   }
-   
-   // إشارة انعكاس إذا كان النمط انعكاسي
-   if(patternResult.patternType == CHART_PATTERN_REVERSAL)
-   {
-      SChartSignal reversalSignal;
-      if(CreateReversalSignal(patternResult, reversalSignal))
-      {
-         int size = ArraySize(tempSignals);
-         ArrayResize(tempSignals, size + 1);
-         tempSignals[size] = reversalSignal;
-      }
-   }
-   
-   // تصفية الإشارات
-   for(int i = 0; i < ArraySize(tempSignals); i++)
-   {
-      if(ValidateSignal(tempSignals[i]))
-      {
-         // فحص التأكيد إذا كان مطلوب
-         if(!m_requireConfirmation || tempSignals[i].hasConfirmation)
-         {
-            int size = ArraySize(signals);
-            ArrayResize(signals, size + 1);
-            signals[size] = tempSignals[i];
-         }
-      }
-   }
-   
-   return ArraySize(signals);
+    if(!m_enabled || !ValidateSignal(signal) || !IsSignalSlotAvailable())
+        return 0;
+    
+    // التحقق من التضارب
+    if(CheckSignalConflicts(signal))
+        return 0;
+    
+    // إنشاء نسخة من الإشارة
+    SChartSignalInfo newSignal = signal;
+    newSignal.signalId = m_nextSignalId++;
+    newSignal.signalTime = TimeCurrent();
+    newSignal.lastUpdate = TimeCurrent();
+    newSignal.status = SIGNAL_STATUS_PENDING;
+    
+    // ملء البيانات الافتراضية
+    FillSignalDefaults(newSignal);
+    
+    // إضافة الإشارة
+    m_signals[m_signalCount] = newSignal;
+    m_signalCount++;
+    m_totalSignals++;
+    
+    // إرسال تنبيه
+    if(m_alertsEnabled)
+        SendSignalAlert(newSignal.signalId, "إشارة جديدة: " + newSignal.patternName);
+    
+    return newSignal.signalId;
 }
 
 //+------------------------------------------------------------------+
-//| إنشاء إشارة دخول                                                |
+//| العثور على أفضل إشارة                                           |
 //+------------------------------------------------------------------+
-bool CChartSignal::CreateEntrySignal(const SChartPatternResult &patternResult, SChartSignal &signal)
+ulong CChartSignalManager::FindBestSignal(const string symbol)
 {
-   signal = SChartSignal(); // تهيئة
-   
-   signal.signalId = GenerateSignalId();
-   signal.signalType = CHART_SIGNAL_ENTRY;
-   signal.direction = patternResult.direction;
-   signal.patternName = patternResult.patternName;
-   signal.signalTime = patternResult.detectionTime;
-   
-   // تحديد أسعار التداول
-   signal.entryPrice = patternResult.entryPrice;
-   signal.stopLoss = patternResult.stopLoss;
-   signal.takeProfit1 = patternResult.priceTarget;
-   
-   // حساب أهداف إضافية
-   double patternHeight = patternResult.patternHeight;
-   if(patternHeight > 0.0)
-   {
-      if(signal.direction == PATTERN_BULLISH)
-      {
-         signal.takeProfit2 = signal.takeProfit1 + (patternHeight * 0.5);
-         signal.takeProfit3 = signal.takeProfit1 + patternHeight;
-      }
-      else if(signal.direction == PATTERN_BEARISH)
-      {
-         signal.takeProfit2 = signal.takeProfit1 - (patternHeight * 0.5);
-         signal.takeProfit3 = signal.takeProfit1 - patternHeight;
-      }
-   }
-   
-   // حساب المخاطر والعائد
-   signal.riskRewardRatio = CalculateRiskReward(signal);
-   signal.probability = CalculateProbability(patternResult);
-   signal.confidence = patternResult.confidence;
-   
-   // قوة ودرجة عجالة الإشارة
-   signal.strength = CalculateSignalStrength(signal);
-   signal.urgency = CalculateSignalUrgency(signal);
-   
-   // معلومات إضافية
-   signal.description = "إشارة دخول بناءً على نمط " + patternResult.patternName;
-   signal.actionRequired = (signal.direction == PATTERN_BULLISH) ? "شراء" : "بيع";
-   signal.hasConfirmation = HasTechnicalConfirmation(patternResult);
-   
-   // تحديد انتهاء الصلاحية
-   CalculateSignalExpiration(signal);
-   
-   signal.isActive = true;
-   signal.wasTriggered = false;
-   
-   return true;
+    ulong bestSignalId = 0;
+    double bestScore = 0.0;
+    
+    for(int i = 0; i < m_signalCount; i++)
+    {
+        if(!IsSignalValid(m_signals[i].signalId))
+            continue;
+        
+        if(symbol != "" && m_signals[i].symbolName != symbol)
+            continue;
+        
+        // حساب نقاط الجودة
+        double score = m_signals[i].confidence * m_signals[i].reliability * 
+                      m_signals[i].strength * m_signals[i].riskReward;
+        
+        if(score > bestScore)
+        {
+            bestScore = score;
+            bestSignalId = m_signals[i].signalId;
+        }
+    }
+    
+    return bestSignalId;
 }
 
 //+------------------------------------------------------------------+
-//| إنشاء إشارة خروج                                                |
+//| تحديث جميع الإشارات                                              |
 //+------------------------------------------------------------------+
-bool CChartSignal::CreateExitSignal(const SChartPatternResult &patternResult, SChartSignal &signal)
+void CChartSignalManager::UpdateAllSignals()
 {
-   signal = SChartSignal();
-   
-   signal.signalId = GenerateSignalId();
-   signal.signalType = CHART_SIGNAL_EXIT;
-   signal.direction = (patternResult.direction == PATTERN_BULLISH) ? PATTERN_BEARISH : PATTERN_BULLISH;
-   signal.patternName = patternResult.patternName;
-   signal.signalTime = patternResult.detectionTime;
-   
-   signal.triggerPrice = patternResult.entryPrice;
-   signal.probability = CalculateProbability(patternResult) * 0.8; // أقل قليلاً من إشارة الدخول
-   signal.confidence = patternResult.confidence * 0.9;
-   
-   signal.description = "إشارة خروج بناءً على اكتمال نمط " + patternResult.patternName;
-   signal.actionRequired = "إغلاق المركز";
-   
-   signal.strength = CalculateSignalStrength(signal);
-   signal.urgency = CHART_SIGNAL_HIGH_URGENCY; // إشارات الخروج عادة عاجلة
-   
-   CalculateSignalExpiration(signal);
-   
-   signal.isActive = true;
-   return true;
+    if(!m_enabled || m_isProcessing)
+        return;
+    
+    m_isProcessing = true;
+    
+    // تحديث الأسعار والحالات
+    UpdateSignalPrices();
+    UpdateSignalStatus();
+    CheckSignalConditions();
+    ProcessTrailingStops();
+    CleanupExpiredSignals();
+    
+    // تحديث الإحصائيات
+    UpdateStatistics();
+    
+    m_lastUpdate = TimeCurrent();
+    m_updateCount++;
+    m_isProcessing = false;
 }
 
 //+------------------------------------------------------------------+
-//| إنشاء إشارة اختراق                                              |
+//| تحويل إشارة النمط إلى إشارة مخطط                                |
 //+------------------------------------------------------------------+
-bool CChartSignal::CreateBreakoutSignal(const SChartPatternResult &patternResult, SChartSignal &signal)
+bool CChartSignalManager::ConvertPatternSignal(const SChartPatternSignal &patternSignal, 
+                                              SChartSignalInfo &signalInfo)
 {
-   signal = SChartSignal();
-   
-   signal.signalId = GenerateSignalId();
-   signal.signalType = CHART_SIGNAL_BREAKOUT;
-   signal.direction = patternResult.direction;
-   signal.patternName = patternResult.patternName;
-   signal.signalTime = patternResult.detectionTime;
-   
-   // سعر التفعيل يكون عند مستوى الاختراق المتوقع
-   if(ArraySize(patternResult.keyPoints) > 0)
-   {
-      if(signal.direction == PATTERN_BULLISH)
-         signal.triggerPrice = patternResult.keyPoints[ArraySize(patternResult.keyPoints)-1].price * 1.002; // 0.2% فوق
-      else
-         signal.triggerPrice = patternResult.keyPoints[ArraySize(patternResult.keyPoints)-1].price * 0.998; // 0.2% تحت
-   }
-   else
-   {
-      signal.triggerPrice = patternResult.entryPrice;
-   }
-   
-   signal.entryPrice = signal.triggerPrice;
-   signal.stopLoss = patternResult.stopLoss;
-   signal.takeProfit1 = patternResult.priceTarget;
-   
-   signal.probability = CalculateProbability(patternResult) * 0.9; // اختراق قد يكون كاذب
-   signal.confidence = patternResult.confidence;
-   signal.riskRewardRatio = CalculateRiskReward(signal);
-   
-   signal.description = "إشارة اختراق متوقع من نمط " + patternResult.patternName;
-   signal.actionRequired = "انتظار اختراق ثم دخول";
-   signal.hasConfirmation = patternResult.hasVolConfirmation;
-   
-   signal.strength = CalculateSignalStrength(signal);
-   signal.urgency = CHART_SIGNAL_MEDIUM_URGENCY;
-   
-   CalculateSignalExpiration(signal);
-   
-   signal.isActive = true;
-   return true;
+    signalInfo.patternName = patternSignal.patternName;
+    signalInfo.patternType = patternSignal.patternType;
+    signalInfo.direction = patternSignal.direction;
+    signalInfo.confidence = patternSignal.confidence;
+    signalInfo.reliability = patternSignal.reliability;
+    signalInfo.strength = patternSignal.strength;
+    signalInfo.entryPrice = patternSignal.entryPrice;
+    signalInfo.stopLoss = patternSignal.stopLoss;
+    signalInfo.takeProfit1 = patternSignal.takeProfit1;
+    signalInfo.takeProfit2 = patternSignal.takeProfit2;
+    signalInfo.takeProfit3 = patternSignal.takeProfit3;
+    signalInfo.riskReward = patternSignal.riskReward;
+    signalInfo.volumeConfirmed = patternSignal.volumeConfirmed;
+    signalInfo.trendConfirmed = patternSignal.trendConfirmed;
+    signalInfo.candleConfirmed = patternSignal.candleConfirmed;
+    signalInfo.description = patternSignal.description;
+    signalInfo.successProbability = patternSignal.successProbability;
+    
+    // تحديد نوع العمل
+    switch(patternSignal.direction)
+    {
+        case PATTERN_BULLISH:
+            signalInfo.action = SIGNAL_ACTION_BUY;
+            break;
+        case PATTERN_BEARISH:
+            signalInfo.action = SIGNAL_ACTION_SELL;
+            break;
+        default:
+            signalInfo.action = SIGNAL_ACTION_WAIT;
+    }
+    
+    return true;
 }
 
 //+------------------------------------------------------------------+
-//| إنشاء إشارة انعكاس                                              |
+//| ملء البيانات الافتراضية للإشارة                                 |
 //+------------------------------------------------------------------+
-bool CChartSignal::CreateReversalSignal(const SChartPatternResult &patternResult, SChartSignal &signal)
+void CChartSignalManager::FillSignalDefaults(SChartSignalInfo &signal)
 {
-   signal = SChartSignal();
-   
-   signal.signalId = GenerateSignalId();
-   signal.signalType = CHART_SIGNAL_REVERSAL;
-   signal.direction = patternResult.direction;
-   signal.patternName = patternResult.patternName;
-   signal.signalTime = patternResult.detectionTime;
-   
-   signal.entryPrice = patternResult.entryPrice;
-   signal.stopLoss = patternResult.stopLoss;
-   signal.takeProfit1 = patternResult.priceTarget;
-   
-   // انعكاسات عادة لها أهداف أكبر
-   double patternHeight = patternResult.patternHeight;
-   if(patternHeight > 0.0)
-   {
-      if(signal.direction == PATTERN_BULLISH)
-      {
-         signal.takeProfit2 = signal.takeProfit1 + patternHeight;
-         signal.takeProfit3 = signal.takeProfit1 + (patternHeight * 1.618); // نسبة فيبوناتشي
-      }
-      else if(signal.direction == PATTERN_BEARISH)
-      {
-         signal.takeProfit2 = signal.takeProfit1 - patternHeight;
-         signal.takeProfit3 = signal.takeProfit1 - (patternHeight * 1.618);
-      }
-   }
-   
-   signal.probability = CalculateProbability(patternResult);
-   signal.confidence = patternResult.confidence;
-   signal.riskRewardRatio = CalculateRiskReward(signal);
-   
-   signal.description = "إشارة انعكاس بناءً على نمط " + patternResult.patternName;
-   signal.actionRequired = (signal.direction == PATTERN_BULLISH) ? "انعكاس صعودي - شراء" : "انعكاس هبوطي - بيع";
-   signal.hasConfirmation = HasTechnicalConfirmation(patternResult);
-   
-   signal.strength = CalculateSignalStrength(signal);
-   signal.urgency = CHART_SIGNAL_HIGH_URGENCY; // انعكاسات مهمة
-   
-   CalculateSignalExpiration(signal);
-   
-   signal.isActive = true;
-   return true;
-}
-
-//+------------------------------------------------------------------+
-//| إضافة إشارة                                                     |
-//+------------------------------------------------------------------+
-bool CChartSignal::AddSignal(const SChartSignal &signal)
-{
-   if(!ValidateSignal(signal))
-      return false;
-   
-   int size = ArraySize(m_activeSignals);
-   ArrayResize(m_activeSignals, size + 1);
-   m_activeSignals[size] = signal;
-   
-   m_totalSignals++;
-   
-   return true;
-}
-
-//+------------------------------------------------------------------+
-//| تحديث إشارة                                                     |
-//+------------------------------------------------------------------+
-bool CChartSignal::UpdateSignal(const string signalId, const SChartSignal &updatedSignal)
-{
-   for(int i = 0; i < ArraySize(m_activeSignals); i++)
-   {
-      if(m_activeSignals[i].signalId == signalId)
-      {
-         m_activeSignals[i] = updatedSignal;
-         return true;
-      }
-   }
-   
-   return false;
-}
-
-//+------------------------------------------------------------------+
-//| إزالة إشارة                                                     |
-//+------------------------------------------------------------------+
-bool CChartSignal::RemoveSignal(const string signalId)
-{
-   for(int i = 0; i < ArraySize(m_activeSignals); i++)
-   {
-      if(m_activeSignals[i].signalId == signalId)
-      {
-         // نقل الإشارة للتاريخ
-         int histSize = ArraySize(m_historicalSignals);
-         ArrayResize(m_historicalSignals, histSize + 1);
-         m_historicalSignals[histSize] = m_activeSignals[i];
-         
-         // حذف من القائمة النشطة
-         for(int j = i; j < ArraySize(m_activeSignals) - 1; j++)
-            m_activeSignals[j] = m_activeSignals[j + 1];
-         
-         ArrayResize(m_activeSignals, ArraySize(m_activeSignals) - 1);
-         return true;
-      }
-   }
-   
-   return false;
-}
-
-//+------------------------------------------------------------------+
-//| مسح الإشارات المنتهية الصلاحية                                  |
-//+------------------------------------------------------------------+
-void CChartSignal::ClearExpiredSignals()
-{
-   datetime currentTime = TimeCurrent();
-   
-   for(int i = ArraySize(m_activeSignals) - 1; i >= 0; i--)
-   {
-      if(m_activeSignals[i].expirationTime > 0 && currentTime > m_activeSignals[i].expirationTime)
-      {
-         RemoveSignal(m_activeSignals[i].signalId);
-      }
-   }
-}
-
-//+------------------------------------------------------------------+
-//| حساب قوة الإشارة                                                |
-//+------------------------------------------------------------------+
-ENUM_CHART_SIGNAL_STRENGTH CChartSignal::CalculateSignalStrength(const SChartSignal &signal)
-{
-   double strength = 0.0;
-   
-   // عامل الاحتمالية (0-40%)
-   strength += signal.probability * 0.4;
-   
-   // عامل الثقة (0-30%)
-   strength += signal.confidence * 0.3;
-   
-   // عامل نسبة المخاطر للعائد (0-20%)
-   if(signal.riskRewardRatio > 0.0)
-      strength += MathMin(1.0 / signal.riskRewardRatio / 3.0, 0.2);
-   
-   // عامل التأكيد (0-10%)
-   if(signal.hasConfirmation)
-      strength += 0.1;
-   
-   if(strength >= 0.8)
-      return CHART_SIGNAL_VERY_STRONG;
-   else if(strength >= 0.6)
-      return CHART_SIGNAL_STRONG;
-   else if(strength >= 0.4)
-      return CHART_SIGNAL_MODERATE;
-   else
-      return CHART_SIGNAL_WEAK;
-}
-
-//+------------------------------------------------------------------+
-//| حساب درجة عجالة الإشارة                                         |
-//+------------------------------------------------------------------+
-ENUM_CHART_SIGNAL_URGENCY CChartSignal::CalculateSignalUrgency(const SChartSignal &signal)
-{
-   // إشارات الخروج والانعكاس لها أولوية عالية
-   if(signal.signalType == CHART_SIGNAL_EXIT || signal.signalType == CHART_SIGNAL_REVERSAL)
-      return CHART_SIGNAL_HIGH_URGENCY;
-   
-   // إشارات قوية جداً تكون فورية
-   if(signal.strength == CHART_SIGNAL_VERY_STRONG)
-      return CHART_SIGNAL_IMMEDIATE;
-   
-   // إشارات قوية تكون عالية العجالة
-   if(signal.strength == CHART_SIGNAL_STRONG)
-      return CHART_SIGNAL_HIGH_URGENCY;
-   
-   // إشارات متوسطة تكون متوسطة العجالة
-   if(signal.strength == CHART_SIGNAL_MODERATE)
-      return CHART_SIGNAL_MEDIUM_URGENCY;
-   
-   return CHART_SIGNAL_LOW_URGENCY;
-}
-
-//+------------------------------------------------------------------+
-//| حساب الاحتمالية                                                 |
-//+------------------------------------------------------------------+
-double CChartSignal::CalculateProbability(const SChartPatternResult &patternResult)
-{
-   double probability = patternResult.confidence;
-   
-   // تعديل بناءً على نوع النمط
-   switch(patternResult.patternType)
-   {
-      case CHART_PATTERN_REVERSAL:
-         probability *= 0.9; // انعكاسات أصعب
-         break;
-      case CHART_PATTERN_CONTINUATION:
-         probability *= 1.1; // استمرار أسهل
-         break;
-      case CHART_PATTERN_HARMONIC:
-         probability *= 1.05; // أنماط توافقية موثوقة
-         break;
-   }
-   
-   // تعديل بناءً على تأكيد الحجم
-   if(patternResult.hasVolConfirmation)
-      probability *= 1.1;
-   
-   // تعديل بناءً على الاكتمال
-   probability *= (patternResult.completionPercentage / 100.0);
-   
-   return MathMin(probability, 0.95); // أقصى احتمالية 95%
-}
-
-//+------------------------------------------------------------------+
-//| حساب نسبة المخاطر للعائد                                        |
-//+------------------------------------------------------------------+
-double CChartSignal::CalculateRiskReward(const SChartSignal &signal)
-{
-   if(signal.takeProfit1 == 0.0 || signal.stopLoss == 0.0 || signal.entryPrice == 0.0)
-      return 0.0;
-   
-   double risk = MathAbs(signal.entryPrice - signal.stopLoss);
-   double reward = MathAbs(signal.takeProfit1 - signal.entryPrice);
-   
-   if(reward == 0.0)
-      return DBL_MAX;
-   
-   return risk / reward;
-}
-
-//+------------------------------------------------------------------+
-//| مراقبة الإشارات النشطة                                          |
-//+------------------------------------------------------------------+
-int CChartSignal::MonitorActiveSignals(const double currentPrice)
-{
-   int triggeredCount = 0;
-   
-   for(int i = 0; i < ArraySize(m_activeSignals); i++)
-   {
-      if(CheckSignalTrigger(m_activeSignals[i], currentPrice))
-      {
-         triggeredCount++;
-         m_triggeredSignals++;
-      }
-      
-      UpdateSignalStatus(m_activeSignals[i], currentPrice);
-   }
-   
-   // مسح الإشارات المنتهية الصلاحية
-   ClearExpiredSignals();
-   
-   return triggeredCount;
-}
-
-//+------------------------------------------------------------------+
-//| فحص تفعيل الإشارة                                               |
-//+------------------------------------------------------------------+
-bool CChartSignal::CheckSignalTrigger(SChartSignal &signal, const double currentPrice)
-{
-   if(signal.wasTriggered)
-      return false;
-   
-   bool triggered = false;
-   
-   if(signal.triggerPrice > 0.0)
-   {
-      if(signal.direction == PATTERN_BULLISH && currentPrice >= signal.triggerPrice)
-         triggered = true;
-      else if(signal.direction == PATTERN_BEARISH && currentPrice <= signal.triggerPrice)
-         triggered = true;
-   }
-   else
-   {
-      // إذا لم يكن هناك سعر تفعيل، فالإشارة نشطة فوراً
-      triggered = true;
-   }
-   
-   if(triggered)
-   {
-      signal.wasTriggered = true;
-      Print("تم تفعيل الإشارة: ", signal.signalId, " - ", signal.description);
-   }
-   
-   return triggered;
-}
-
-//+------------------------------------------------------------------+
-//| تحديث حالة الإشارة                                              |
-//+------------------------------------------------------------------+
-void CChartSignal::UpdateSignalStatus(SChartSignal &signal, const double currentPrice)
-{
-   // فحص إذا وصل السعر لوقف الخسارة
-   if(signal.stopLoss > 0.0)
-   {
-      bool hitStopLoss = false;
-      
-      if(signal.direction == PATTERN_BULLISH && currentPrice <= signal.stopLoss)
-         hitStopLoss = true;
-      else if(signal.direction == PATTERN_BEARISH && currentPrice >= signal.stopLoss)
-         hitStopLoss = true;
-      
-      if(hitStopLoss)
-      {
-         signal.isActive = false;
-         signal.notes += "تم ضرب وقف الخسارة؛ ";
-         RecordSignalOutcome(signal, false, signal.stopLoss - signal.entryPrice);
-      }
-   }
-   
-   // فحص إذا وصل السعر للهدف
-   if(signal.takeProfit1 > 0.0 && signal.isActive)
-   {
-      bool hitTarget = false;
-      
-      if(signal.direction == PATTERN_BULLISH && currentPrice >= signal.takeProfit1)
-         hitTarget = true;
-      else if(signal.direction == PATTERN_BEARISH && currentPrice <= signal.takeProfit1)
-         hitTarget = true;
-      
-      if(hitTarget)
-      {
-         signal.isActive = false;
-         signal.notes += "تم الوصول للهدف الأول؛ ";
-         RecordSignalOutcome(signal, true, signal.takeProfit1 - signal.entryPrice);
-      }
-   }
+    if(signal.symbolName == "")
+        signal.symbolName = Symbol();
+    
+    if(signal.timeframe == PERIOD_CURRENT)
+        signal.timeframe = Period();
+    
+    if(signal.expiryTime == 0)
+        signal.expiryTime = TimeCurrent() + m_signalExpiryBars * PeriodSeconds();
+    
+    // تحديد درجة الإلحاح
+    signal.urgency = CalculateSignalUrgency(signal.signalId);
+    
+    // تحديد السعر الحالي
+    signal.currentPrice = SymbolInfoDouble(signal.symbolName, SYMBOL_BID);
 }
 
 //+------------------------------------------------------------------+
 //| التحقق من صحة الإشارة                                           |
 //+------------------------------------------------------------------+
-bool CChartSignal::ValidateSignal(const SChartSignal &signal)
+bool CChartSignalManager::ValidateSignal(const SChartSignalInfo &signal)
 {
-   // فحص الاحتمالية
-   if(signal.probability < m_minProbability)
-      return false;
-   
-   // فحص الثقة
-   if(signal.confidence < m_minConfidence)
-      return false;
-   
-   // فحص نسبة المخاطر للعائد
-   if(signal.riskRewardRatio > m_maxRiskReward)
-      return false;
-   
-   // فحص صحة الأسعار
-   if(signal.entryPrice <= 0.0)
-      return false;
-   
-   return true;
+    // التحقق من البيانات الأساسية
+    if(signal.patternName == "" || signal.symbolName == "")
+        return false;
+    
+    if(signal.confidence < 0.0 || signal.confidence > 1.0)
+        return false;
+    
+    if(signal.reliability < 0.0 || signal.reliability > 1.0)
+        return false;
+    
+    // التحقق من بيانات التداول
+    if(signal.entryPrice <= 0.0)
+        return false;
+    
+    if(signal.action == SIGNAL_ACTION_BUY || signal.action == SIGNAL_ACTION_SELL)
+    {
+        if(signal.stopLoss <= 0.0 || signal.takeProfit1 <= 0.0)
+            return false;
+        
+        // التحقق من منطقية الأسعار
+        if(signal.action == SIGNAL_ACTION_BUY)
+        {
+            if(signal.stopLoss >= signal.entryPrice || signal.takeProfit1 <= signal.entryPrice)
+                return false;
+        }
+        else if(signal.action == SIGNAL_ACTION_SELL)
+        {
+            if(signal.stopLoss <= signal.entryPrice || signal.takeProfit1 >= signal.entryPrice)
+                return false;
+        }
+    }
+    
+    return true;
 }
 
 //+------------------------------------------------------------------+
-//| حساب انتهاء صلاحية الإشارة                                      |
+//| طباعة تقرير الإشارات                                            |
 //+------------------------------------------------------------------+
-void CChartSignal::CalculateSignalExpiration(SChartSignal &signal)
+void CChartSignalManager::PrintSignalsReport()
 {
-   // مدة الصلاحية تعتمد على الإطار الزمني
-   int expirationBars = 0;
-   
-   switch(m_timeframe)
-   {
-      case PERIOD_M1:
-      case PERIOD_M5:
-         expirationBars = 60; // ساعة
-         break;
-      case PERIOD_M15:
-      case PERIOD_M30:
-         expirationBars = 48; // يوم
-         break;
-      case PERIOD_H1:
-         expirationBars = 24; // يوم
-         break;
-      case PERIOD_H4:
-         expirationBars = 18; // 3 أيام
-         break;
-      case PERIOD_D1:
-         expirationBars = 7;  // أسبوع
-         break;
-      default:
-         expirationBars = 10;
-         break;
-   }
-   
-   signal.expirationTime = signal.signalTime + (expirationBars * PeriodSeconds(m_timeframe));
-}
-
-//+------------------------------------------------------------------+
-//| توليد معرف إشارة                                                |
-//+------------------------------------------------------------------+
-string CChartSignal::GenerateSignalId()
-{
-   static int counter = 0;
-   counter++;
-   
-   return StringFormat("%s_%s_%d_%d", 
-                      m_symbol, 
-                      EnumToString(m_timeframe), 
-                      (int)TimeCurrent(), 
-                      counter);
-}
-
-//+------------------------------------------------------------------+
-//| تسجيل نتيجة الإشارة                                             |
-//+------------------------------------------------------------------+
-void CChartSignal::RecordSignalOutcome(const SChartSignal &signal, const bool success, 
-                                       const double profitLoss)
-{
-   if(success)
-      m_successfulSignals++;
-   
-   // تحديث متوسط الربح/الخسارة
-   m_avgProfitLoss = ((m_avgProfitLoss * (m_totalSignals - 1)) + profitLoss) / m_totalSignals;
-   
-   // تحديث معدل الفوز
-   m_winRate = (double)m_successfulSignals / m_totalSignals;
-}
-
-//+------------------------------------------------------------------+
-//| فحص التأكيد التقني                                              |
-//+------------------------------------------------------------------+
-bool CChartSignal::HasTechnicalConfirmation(const SChartPatternResult &patternResult)
-{
-   // فحص تأكيد الحجم
-   bool volumeConfirm = patternResult.hasVolConfirmation;
-   
-   // فحص قوة النمط
-   bool strongPattern = (patternResult.confidence >= 0.7);
-   
-   // فحص اكتمال النمط
-   bool completePattern = (patternResult.completionPercentage >= 80.0);
-   
-   return (volumeConfirm && strongPattern && completePattern);
-}
-
-//+------------------------------------------------------------------+
-//| الحصول على إشارة نشطة                                          |
-//+------------------------------------------------------------------+
-SChartSignal CChartSignal::GetActiveSignal(const int index) const
-{
-   SChartSignal emptySignal;
-   
-   if(index < 0 || index >= ArraySize(m_activeSignals))
-      return emptySignal;
-   
-   return m_activeSignals[index];
-}
-
-//+------------------------------------------------------------------+
-//| الحصول على إشارة تاريخية                                       |
-//+------------------------------------------------------------------+
-SChartSignal CChartSignal::GetHistoricalSignal(const int index) const
-{
-   SChartSignal emptySignal;
-   
-   if(index < 0 || index >= ArraySize(m_historicalSignals))
-      return emptySignal;
-   
-   return m_historicalSignals[index];
-}
-
-//+------------------------------------------------------------------+
-//| البحث عن إشارة بالمعرف                                          |
-//+------------------------------------------------------------------+
-SChartSignal CChartSignal::FindSignalById(const string signalId)
-{
-   SChartSignal emptySignal;
-   
-   // البحث في الإشارات النشطة
-   for(int i = 0; i < ArraySize(m_activeSignals); i++)
-   {
-      if(m_activeSignals[i].signalId == signalId)
-         return m_activeSignals[i];
-   }
-   
-   // البحث في الإشارات التاريخية
-   for(int i = 0; i < ArraySize(m_historicalSignals); i++)
-   {
-      if(m_historicalSignals[i].signalId == signalId)
-         return m_historicalSignals[i];
-   }
-   
-   return emptySignal;
-}
-
-//+------------------------------------------------------------------+
-//| توليد تقرير الأداء                                              |
-//+------------------------------------------------------------------+
-string CChartSignal::GeneratePerformanceReport()
-{
-   string report = "=== تقرير أداء إشارات المخططات ===\n";
-   report += StringFormat("الرمز: %s | الإطار الزمني: %s\n", m_symbol, EnumToString(m_timeframe));
-   report += StringFormat("إجمالي الإشارات: %d\n", m_totalSignals);
-   report += StringFormat("الإشارات الناجحة: %d\n", m_successfulSignals);
-   report += StringFormat("معدل الفوز: %.2f%%\n", m_winRate * 100);
-   report += StringFormat("متوسط الربح/الخسارة: %.5f\n", m_avgProfitLoss);
-   report += StringFormat("الإشارات النشطة: %d\n", ArraySize(m_activeSignals));
-   report += StringFormat("الإشارات المفعلة: %d\n", m_triggeredSignals);
-   
-   return report;
-}
-
-//+------------------------------------------------------------------+
-//| توليد ملخص الإشارة                                              |
-//+------------------------------------------------------------------+
-string CChartSignal::GenerateSignalSummary(const SChartSignal &signal)
-{
-   string summary = StringFormat("=== ملخص الإشارة %s ===\n", signal.signalId);
-   summary += StringFormat("النوع: %s | الاتجاه: %s\n", 
-                          EnumToString(signal.signalType), 
-                          EnumToString(signal.direction));
-   summary += StringFormat("النمط: %s\n", signal.patternName);
-   summary += StringFormat("القوة: %s | العجالة: %s\n", 
-                          EnumToString(signal.strength), 
-                          EnumToString(signal.urgency));
-   summary += StringFormat("الاحتمالية: %.2f%% | الثقة: %.2f%%\n", 
-                          signal.probability * 100, 
-                          signal.confidence * 100);
-   summary += StringFormat("سعر الدخول: %.5f\n", signal.entryPrice);
-   summary += StringFormat("وقف الخسارة: %.5f\n", signal.stopLoss);
-   summary += StringFormat("الهدف الأول: %.5f\n", signal.takeProfit1);
-   summary += StringFormat("نسبة المخاطر/العائد: %.2f\n", signal.riskRewardRatio);
-   summary += StringFormat("الوصف: %s\n", signal.description);
-   summary += StringFormat("الإجراء المطلوب: %s\n", signal.actionRequired);
-   
-   return summary;
+    Print("===== تقرير إشارات أنماط المخططات =====");
+    Print("إجمالي الإشارات: ", m_totalSignals);
+    Print("الإشارات النشطة: ", GetActiveSignalsCount());
+    Print("الإشارات الناجحة: ", m_successfulSignals);
+    Print("الإشارات الفاشلة: ", m_failedSignals);
+    Print("معدل النجاح: ", DoubleToString(m_successRate, 2), "%");
+    Print("إجمالي الربح/الخسارة: ", DoubleToString(m_totalPnL, 2));
+    
+    if(m_signalCount > 0)
+    {
+        Print("--- الإشارات الحالية ---");
+        for(int i = 0; i < m_signalCount; i++)
+        {
+            Print(StringFormat("[%d] %s - %s - %s - %.2f%%", 
+                  m_signals[i].signalId, m_signals[i].patternName, 
+                  m_signals[i].symbolName, EnumToString(m_signals[i].status),
+                  m_signals[i].confidence * 100));
+        }
+    }
+    Print("=======================================");
 }

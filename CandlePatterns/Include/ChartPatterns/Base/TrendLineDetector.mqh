@@ -1,672 +1,865 @@
 //+------------------------------------------------------------------+
-//|                                          TrendLineDetector.mqh |
-//|                                  كاشف خطوط الاتجاه المتقدم      |
-//|                         حقوق النشر 2025, مكتبة أنماط الشموع اليابانية |
+//|                       TrendLineDetector.mqh |
+//|                  حقوق النشر 2025, مكتبة أنماط المخططات |
 //+------------------------------------------------------------------+
-#property copyright "حقوق النشر 2025, مكتبة أنماط الشموع اليابانية"
-#property link      "https://www.yourwebsite.com"
-#property version   "1.00"
+#property copyright "حقوق النشر 2025, مكتبة أنماط المخططات"
+#property link "https://www.yourwebsite.com"
+#property version "1.00"
 #property strict
 
-// تضمين التعريفات المشتركة
-#include "ChartCommonDefs.mqh"
+#include "ChartUtils.mqh"
+#include "../../CandlePatterns/Base/CandleUtils.mqh"
 
 //+------------------------------------------------------------------+
-//| نقطة للحسابات                                                   |
+//| تعدادات خطوط الاتجاه المخصصة |
 //+------------------------------------------------------------------+
-struct SPoint
-{
-   datetime    time;           // الوقت
-   double      price;          // السعر
-   int         bar_index;      // فهرس الشمعة
-   
-   SPoint()
-   {
-      time = 0;
-      price = 0.0;
-      bar_index = 0;
-   }
-   
-   SPoint(datetime t, double p, int idx)
-   {
-      time = t;
-      price = p;
-      bar_index = idx;
-   }
-};
+enum ENUM_TRENDLINE_DIRECTION
+  {
+   TRENDLINE_ASCENDING,    // خط اتجاه صاعد
+   TRENDLINE_DESCENDING,   // خط اتجاه هابط
+   TRENDLINE_HORIZONTAL    // خط أفقي
+  };
+
+enum ENUM_TRENDLINE_STRENGTH
+  {
+   TRENDLINE_WEAK,      // ضعيف
+   TRENDLINE_MODERATE,  // متوسط
+   TRENDLINE_STRONG,    // قوي
+   TRENDLINE_VERY_STRONG // قوي جداً
+  };
+
+enum ENUM_TRENDLINE_STATUS
+  {
+   TRENDLINE_ACTIVE,     // نشط
+   TRENDLINE_BROKEN,     // مكسور
+   TRENDLINE_RETESTED,   // معاد اختباره
+   TRENDLINE_CONFIRMED   // مؤكد
+  };
 
 //+------------------------------------------------------------------+
-//| فئة كاشف خطوط الاتجاه                                           |
+//| هيكل خط الاتجاه المبسط |
+//+------------------------------------------------------------------+
+struct STrendLineDetailed
+  {
+   // معلومات الخط
+   int                        id;                // معرف الخط
+   string                     name;              // اسم الخط
+   ENUM_TRENDLINE_DIRECTION   direction;         // اتجاه الخط
+   ENUM_TRENDLINE_STRENGTH    strength;          // قوة الخط
+   ENUM_TRENDLINE_STATUS      status;            // حالة الخط
+
+   // النقاط الأساسية
+   SChartPoint                startPoint;        // نقطة البداية
+   SChartPoint                endPoint;          // نقطة النهاية
+
+   // خصائص الخط
+   double                     slope;             // الميل
+   double                     angle;             // الزاوية
+   double                     intercept;         // نقطة التقاطع مع المحور العمودي
+   double                     r_squared;         // معامل التحديد
+
+   // معلومات إضافية
+   int                        touchCount;        // عدد نقاط اللمس
+   datetime                   creationTime;      // وقت الإنشاء
+   datetime                   lastTouchTime;     // آخر وقت لمس
+   double                     averageDistance;   // المسافة المتوسطة
+
+   void Reset()
+     {
+      id = 0;
+      name = "";
+      direction = TRENDLINE_ASCENDING;
+      strength = TRENDLINE_WEAK;
+      status = TRENDLINE_ACTIVE;
+      slope = 0.0;
+      angle = 0.0;
+      intercept = 0.0;
+      r_squared = 0.0;
+      touchCount = 0;
+      creationTime = 0;
+      lastTouchTime = 0;
+      averageDistance = 0.0;
+     }
+  };
+
+//+------------------------------------------------------------------+
+//| فئة كاشف خطوط الاتجاه |
 //+------------------------------------------------------------------+
 class CTrendLineDetector
-{
+  {
 private:
-   // متغيرات الفئة
-   string              m_symbol;                   // الرمز المتداول
-   ENUM_TIMEFRAMES     m_timeframe;               // الإطار الزمني
-   int                 m_lookback_bars;           // عدد الشموع للبحث
-   double              m_min_slope_threshold;     // الحد الأدنى لميل الخط
-   double              m_max_slope_threshold;     // الحد الأقصى لميل الخط
-   int                 m_min_touches;             // الحد الأدنى لعدد اللمسات
-   double              m_tolerance_pips;          // التسامح بالنقاط
-   bool                m_initialized;             // حالة التهيئة
-   
-   // مصفوفات البيانات
-   STrendLine          m_trendlines[];            // مصفوفة خطوط الاتجاه
-   SPoint              m_highs[];                 // القمم
-   SPoint              m_lows[];                  // القيعان
-   
-   // متغيرات العمل
-   int                 m_rates_total;             // العدد الإجمالي للبارات
-   MqlRates            m_rates[];                 // بيانات الأسعار
-   
+   // خطوط الاتجاه المكتشفة
+   STrendLineDetailed        m_trendLines[100];  // مصفوفة خطوط الاتجاه ثابتة الحجم
+   SChartPoint               m_touchPoints[100][20]; // نقاط اللمس لكل خط
+   int                       m_lineCount;        // عدد الخطوط
+
+   // إعدادات الكشف
+   int                       m_lookbackPeriod;   // فترة البحث للخلف
+   int                       m_minTouchPoints;   // الحد الأدنى لنقاط اللمس
+   double                    m_tolerancePercent; // نسبة التسامح
+   double                    m_minR_Squared;     // الحد الأدنى لمعامل التحديد
+   double                    m_maxAngleDegrees;  // الحد الأقصى للزاوية بالدرجات
+
+   // أدوات التحليل
+   CTrendDetector*           m_trendDetector;    // كاشف الاتجاه العام
+
 public:
-   // Constructor & Destructor
-   CTrendLineDetector(void);
-   ~CTrendLineDetector(void);
-   
-   // دوال التهيئة
-   bool                Initialize(string symbol, ENUM_TIMEFRAMES timeframe);
-   void                Deinitialize();
-   void                SetParameters(int lookback_bars = 100, 
-                                    double min_slope = 0.0001, 
-                                    double max_slope = 0.01,
-                                    int min_touches = 2,
-                                    double tolerance_pips = 5.0);
-   
-   // دوال الكشف الرئيسية
-   bool                DetectTrendLines(void);
-   bool                UpdateTrendLines(int startIdx = 0, int endIdx = 0);
-   
-   // دوال الحصول على النتائج
-   int                 GetTrendLinesCount(void) { return ArraySize(m_trendlines); }
-   bool                GetTrendLine(int index, STrendLine &trendline);
-   bool                GetStrongestTrendLine(ENUM_PATTERN_DIRECTION direction, STrendLine &trendline);
-   
-   // دوال التحليل
-   ENUM_PATTERN_DIRECTION GetOverallTrend(void);
-   double              GetTrendStrength(ENUM_PATTERN_DIRECTION direction);
-   bool                IsTrendLineValid(const STrendLine &trendline);
-   
-   // دوال الرسم
-   bool                DrawTrendLines(long chart_id = 0);
-   bool                RemoveTrendLines(long chart_id = 0);
-   
-   // دوال الوصول للبيانات
-   bool                IsInitialized() const { return m_initialized; }
-   string              GetSymbol() const { return m_symbol; }
-   ENUM_TIMEFRAMES     GetTimeframe() const { return m_timeframe; }
-   
+                     CTrendLineDetector();
+                    ~CTrendLineDetector();
+
+   // الكشف عن خطوط الاتجاه
+   int               DetectTrendLines(const string symbol, ENUM_TIMEFRAMES timeframe,
+                                      const double &high[], const double &low[],
+                                      const double &close[], const datetime &time[],
+                                      int rates_total);
+
+   int               DetectAscendingTrendLines(const double &high[], const double &low[],
+         const datetime &time[], int rates_total);
+
+   int               DetectDescendingTrendLines(const double &high[], const double &low[],
+         const datetime &time[], int rates_total);
+
+   int               DetectHorizontalLines(const double &high[], const double &low[],
+                                           const datetime &time[], int rates_total);
+
+   // التحقق من كسر خطوط الاتجاه
+   bool              CheckTrendLineBreakout(const STrendLineDetailed &trendline,
+         const double &high[], const double &low[],
+         const double &close[], const datetime &time[],
+         int currentBar, double &breakoutPrice);
+
+   // حساب قوة خط الاتجاه
+   ENUM_TRENDLINE_STRENGTH CalculateTrendLineStrength(const STrendLineDetailed &trendline);
+
+   // الوصول لخطوط الاتجاه
+   int               GetTrendLineCount() const { return m_lineCount; }
+   STrendLineDetailed GetTrendLine(int index) const;
+   int               GetActiveTrendLines(ENUM_TRENDLINE_DIRECTION direction, STrendLineDetailed &activeLines[]);
+
+   // تحديث خطوط الاتجاه
+   void              UpdateTrendLines(const double &high[], const double &low[],
+                                      const double &close[], const datetime &time[],
+                                      int currentBar);
+
+   // رسم خطوط الاتجاه
+   void              DrawTrendLine(const string symbol, const STrendLineDetailed &trendline,
+                                   color lineColor = clrBlue, int lineWidth = 1,
+                                   ENUM_LINE_STYLE lineStyle = STYLE_SOLID);
+
+   void              DrawAllTrendLines(const string symbol);
+
+   // إعدادات الكاشف
+   void              SetLookbackPeriod(int period) { m_lookbackPeriod = MathMax(20, period); }
+   void              SetMinTouchPoints(int points) { m_minTouchPoints = MathMax(2, points); }
+   void              SetTolerancePercent(double percent) { m_tolerancePercent = MathMax(0.001, percent); }
+   void              SetMinR_Squared(double r_squared) { m_minR_Squared = MathMax(0.1, r_squared); }
+   void              SetMaxAngleDegrees(double degrees) { m_maxAngleDegrees = MathMax(1.0, degrees); }
+
+   int               GetLookbackPeriod() const { return m_lookbackPeriod; }
+   int               GetMinTouchPoints() const { return m_minTouchPoints; }
+   double            GetTolerancePercent() const { return m_tolerancePercent; }
+
+   // مسح خطوط الاتجاه
+   void              ClearTrendLines();
+   void              RemoveBrokenTrendLines();
+
 private:
-   // دوال مساعدة خاصة
-   bool                LoadPriceData(void);
-   bool                FindHighsAndLows(void);
-   bool                CalculateTrendLine(const SPoint &point1, const SPoint &point2, STrendLine &trendline);
-   double              CalculateLineStrength(const STrendLine &trendline);
-   int                 CountTouches(const STrendLine &trendline);
-   bool                IsPointOnLine(const SPoint &point, const STrendLine &trendline, double tolerance);
-   double              GetPriceAtTime(const STrendLine &trendline, datetime time);
-   void                SortTrendLinesByStrength(void);
-   bool                AddTrendLineToChart(const STrendLine &trendline, long chart_id);
-   string              GenerateObjectName(const STrendLine &trendline);
-   
-   // دوال التحويل بين أنواع النقاط
-   SPoint              ChartPointToPoint(const SChartPoint &chartPoint);
-   SChartPoint         PointToChartPoint(const SPoint &point);
-};
+   // دوال مساعدة
+   bool              FindPivotPoints(const double &high[], const double &low[],
+                                     int start, int end, SChartPoint &pivots[]);
+
+   STrendLineDetailed CreateTrendLine(const SChartPoint &point1, const SChartPoint &point2,
+                                      ENUM_TRENDLINE_DIRECTION direction);
+
+   bool              ValidateTrendLine(const STrendLineDetailed &trendline,
+                                       const double &high[], const double &low[],
+                                       const datetime &time[], int rates_total);
+
+   double            CalculateLineDistance(const STrendLineDetailed &trendline,
+                                           const SChartPoint &point);
+
+   double            CalculateR_Squared(int lineIndex);
+
+   bool              IsPointNearLine(const STrendLineDetailed &trendline, const SChartPoint &point);
+
+   double            GetPriceAtTime(const STrendLineDetailed &trendline, datetime time);
+
+   void              AddTouchPoint(int lineIndex, const SChartPoint &point);
+
+   int               GenerateUniqueId();
+  };
 
 //+------------------------------------------------------------------+
-//| المنشئ                                                           |
+//| المنشئ |
 //+------------------------------------------------------------------+
-CTrendLineDetector::CTrendLineDetector(void)
-{
-   m_symbol = Symbol();
-   m_timeframe = Period();
-   m_lookback_bars = 100;
-   m_min_slope_threshold = 0.0001;
-   m_max_slope_threshold = 0.01;
-   m_min_touches = 2;
-   m_tolerance_pips = 5.0;
-   m_rates_total = 0;
-   m_initialized = false;
-   
+CTrendLineDetector::CTrendLineDetector()
+  {
+   m_lineCount = 0;
+   m_lookbackPeriod = 100;
+   m_minTouchPoints = 2;
+   m_tolerancePercent = 0.02; // 2%
+   m_minR_Squared = 0.7;
+   m_maxAngleDegrees = 45.0;
+
+   m_trendDetector = new CTrendDetector();
+
    // تهيئة المصفوفات
-   ArrayResize(m_trendlines, 0);
-   ArrayResize(m_highs, 0);
-   ArrayResize(m_lows, 0);
-   ArrayResize(m_rates, 0);
-}
+   for(int i = 0; i < 100; i++)
+     {
+      m_trendLines[i].Reset();
+      for(int j = 0; j < 20; j++)
+        {
+         m_touchPoints[i][j].price = 0.0;
+         m_touchPoints[i][j].barIndex = -1;
+        }
+     }
+  }
 
 //+------------------------------------------------------------------+
-//| الهادم                                                           |
+//| الهادم |
 //+------------------------------------------------------------------+
-CTrendLineDetector::~CTrendLineDetector(void)
-{
-   Deinitialize();
-}
+CTrendLineDetector::~CTrendLineDetector()
+  {
+   ClearTrendLines();
+   if(m_trendDetector != NULL)
+     {
+      delete m_trendDetector;
+      m_trendDetector = NULL;
+     }
+  }
 
 //+------------------------------------------------------------------+
-//| تهيئة الكاشف                                                     |
+//| الكشف عن خطوط الاتجاه |
 //+------------------------------------------------------------------+
-bool CTrendLineDetector::Initialize(string symbol, ENUM_TIMEFRAMES timeframe)
-{
-   m_symbol = symbol;
-   m_timeframe = timeframe;
-   
-   if(LoadPriceData())
-   {
-      m_initialized = true;
-      Print("تم تهيئة كاشف خطوط الاتجاه للرمز: ", m_symbol, " الإطار الزمني: ", EnumToString(m_timeframe));
-      return true;
-   }
-   
-   return false;
-}
+int CTrendLineDetector::DetectTrendLines(const string symbol, ENUM_TIMEFRAMES timeframe,
+      const double &high[], const double &low[],
+      const double &close[], const datetime &time[],
+      int rates_total)
+  {
+   if(rates_total < m_lookbackPeriod)
+      return 0;
+
+   ClearTrendLines();
+
+   int totalLines = 0;
+
+// كشف خطوط الاتجاه الصاعدة
+   totalLines += DetectAscendingTrendLines(high, low, time, rates_total);
+
+// كشف خطوط الاتجاه الهابطة
+   totalLines += DetectDescendingTrendLines(high, low, time, rates_total);
+
+// كشف الخطوط الأفقية
+   totalLines += DetectHorizontalLines(high, low, time, rates_total);
+
+   return totalLines;
+  }
 
 //+------------------------------------------------------------------+
-//| إنهاء الكاشف                                                     |
+//| كشف خطوط الاتجاه الصاعدة |
 //+------------------------------------------------------------------+
-void CTrendLineDetector::Deinitialize()
-{
-   if(m_initialized)
-   {
-      RemoveTrendLines();
-      ArrayFree(m_trendlines);
-      ArrayFree(m_highs);
-      ArrayFree(m_lows);
-      ArrayFree(m_rates);
-      m_initialized = false;
-   }
-}
+int CTrendLineDetector::DetectAscendingTrendLines(const double &high[], const double &low[],
+      const datetime &time[], int rates_total)
+  {
+   int linesFound = 0;
+   SChartPoint pivots[];
+
+// البحث عن القيعان (pivot lows)
+   if(!FindPivotPoints(high, low, rates_total - m_lookbackPeriod, rates_total - 1, pivots))
+      return 0;
+
+// ترتيب النقاط حسب الوقت
+   for(int i = 0; i < ArraySize(pivots) - 1 && m_lineCount < 100; i++)
+     {
+      for(int j = i + 1; j < ArraySize(pivots) && m_lineCount < 100; j++)
+        {
+         // التأكد من أن النقطة الثانية أعلى من الأولى (اتجاه صاعد)
+         if(pivots[j].price > pivots[i].price && pivots[j].barIndex > pivots[i].barIndex)
+           {
+            STrendLineDetailed newLine = CreateTrendLine(pivots[i], pivots[j], TRENDLINE_ASCENDING);
+
+            if(ValidateTrendLine(newLine, high, low, time, rates_total))
+              {
+               // إضافة الخط إلى المصفوفة
+               m_trendLines[m_lineCount] = newLine;
+               // إضافة نقاط اللمس
+               m_touchPoints[m_lineCount][0] = pivots[i];
+               m_touchPoints[m_lineCount][1] = pivots[j];
+               m_lineCount++;
+               linesFound++;
+              }
+           }
+        }
+     }
+
+   return linesFound;
+  }
 
 //+------------------------------------------------------------------+
-//| تحديد المعاملات                                                 |
+//| كشف خطوط الاتجاه الهابطة |
 //+------------------------------------------------------------------+
-void CTrendLineDetector::SetParameters(int lookback_bars = 100, 
-                                      double min_slope = 0.0001, 
-                                      double max_slope = 0.01,
-                                      int min_touches = 2,
-                                      double tolerance_pips = 5.0)
-{
-   m_lookback_bars = MathMax(10, lookback_bars);
-   m_min_slope_threshold = MathMax(0.00001, min_slope);
-   m_max_slope_threshold = MathMax(m_min_slope_threshold, max_slope);
-   m_min_touches = MathMax(1, min_touches);
-   m_tolerance_pips = MathMax(1.0, tolerance_pips);
-}
+int CTrendLineDetector::DetectDescendingTrendLines(const double &high[], const double &low[],
+      const datetime &time[], int rates_total)
+  {
+   int linesFound = 0;
+   SChartPoint pivots[];
+
+// البحث عن القمم (pivot highs)
+   if(!FindPivotPoints(high, low, rates_total - m_lookbackPeriod, rates_total - 1, pivots))
+      return 0;
+
+// ترتيب النقاط حسب الوقت
+   for(int i = 0; i < ArraySize(pivots) - 1 && m_lineCount < 100; i++)
+     {
+      for(int j = i + 1; j < ArraySize(pivots) && m_lineCount < 100; j++)
+        {
+         // التأكد من أن النقطة الثانية أقل من الأولى (اتجاه هابط)
+         if(pivots[j].price < pivots[i].price && pivots[j].barIndex > pivots[i].barIndex)
+           {
+            STrendLineDetailed newLine = CreateTrendLine(pivots[i], pivots[j], TRENDLINE_DESCENDING);
+
+            if(ValidateTrendLine(newLine, high, low, time, rates_total))
+              {
+               // إضافة الخط إلى المصفوفة
+               m_trendLines[m_lineCount] = newLine;
+               // إضافة نقاط اللمس
+               m_touchPoints[m_lineCount][0] = pivots[i];
+               m_touchPoints[m_lineCount][1] = pivots[j];
+               m_lineCount++;
+               linesFound++;
+              }
+           }
+        }
+     }
+
+   return linesFound;
+  }
 
 //+------------------------------------------------------------------+
-//| تحميل بيانات الأسعار                                            |
+//| كشف الخطوط الأفقية |
 //+------------------------------------------------------------------+
-bool CTrendLineDetector::LoadPriceData(void)
-{
-   int copied = CopyRates(m_symbol, m_timeframe, 0, m_lookback_bars, m_rates);
-   
-   if(copied <= 0)
-   {
-      Print("خطأ في تحميل بيانات الأسعار للرمز: ", m_symbol, " الإطار الزمني: ", EnumToString(m_timeframe));
-      return false;
-   }
-   
-   m_rates_total = copied;
-   ArraySetAsSeries(m_rates, true);
-   
-   return true;
-}
+int CTrendLineDetector::DetectHorizontalLines(const double &high[], const double &low[],
+      const datetime &time[], int rates_total)
+  {
+   int linesFound = 0;
+   double tolerance = (high[rates_total-1] - low[rates_total-1]) * m_tolerancePercent;
 
-//+------------------------------------------------------------------+
-//| البحث عن القمم والقيعان                                         |
-//+------------------------------------------------------------------+
-bool CTrendLineDetector::FindHighsAndLows(void)
-{
-   if(m_rates_total < 5) 
-      return false;
-   
-   ArrayResize(m_highs, 0);
-   ArrayResize(m_lows, 0);
-   
-   // البحث عن القمم والقيعان
-   for(int i = 2; i < m_rates_total - 2; i++)
-   {
-      // البحث عن القمم (High أعلى من الشموع المجاورة)
-      if(m_rates[i].high > m_rates[i-1].high && 
-         m_rates[i].high > m_rates[i-2].high &&
-         m_rates[i].high > m_rates[i+1].high && 
-         m_rates[i].high > m_rates[i+2].high)
-      {
-         SPoint high(m_rates[i].time, m_rates[i].high, i);
+// البحث عن مستويات السعر المتكررة
+   for(int i = rates_total - m_lookbackPeriod; i < rates_total - 10 && m_lineCount < 100; i++)
+     {
+      double referencePrice = (high[i] + low[i]) / 2.0;
+      int touchCount = 1;
+      SChartPoint touchPoints[50];
+
+      // إضافة النقطة المرجعية
+      touchPoints[0].price = referencePrice;
+      touchPoints[0].time = time[i];
+      touchPoints[0].barIndex = i;
+      touchPoints[0].isConfirmed = true;
+
+      // البحث عن نقاط لمس أخرى
+      for(int j = i + 5; j < rates_total && touchCount < 50; j++)
+        {
+         if(MathAbs(high[j] - referencePrice) <= tolerance ||
+            MathAbs(low[j] - referencePrice) <= tolerance)
+           {
+            touchPoints[touchCount].price = (MathAbs(high[j] - referencePrice) <= tolerance) ? high[j] : low[j];
+            touchPoints[touchCount].time = time[j];
+            touchPoints[touchCount].barIndex = j;
+            touchPoints[touchCount].isConfirmed = true;
+            touchCount++;
+           }
+        }
+
+      // إذا كان عدد نقاط اللمس كافي
+      if(touchCount >= m_minTouchPoints)
+        {
+         STrendLineDetailed newLine;
+         newLine.Reset();
          
-         int size = ArraySize(m_highs);
-         ArrayResize(m_highs, size + 1);
-         m_highs[size] = high;
-      }
-      
-      // البحث عن القيعان (Low أقل من الشموع المجاورة)
-      if(m_rates[i].low < m_rates[i-1].low && 
-         m_rates[i].low < m_rates[i-2].low &&
-         m_rates[i].low < m_rates[i+1].low && 
-         m_rates[i].low < m_rates[i+2].low)
-      {
-         SPoint low(m_rates[i].time, m_rates[i].low, i);
+         newLine.id = GenerateUniqueId();
+         newLine.name = "Horizontal_" + IntegerToString(newLine.id);
+         newLine.direction = TRENDLINE_HORIZONTAL;
+         newLine.startPoint = touchPoints[0];
+         newLine.endPoint = touchPoints[touchCount-1];
+         newLine.slope = 0.0;
+         newLine.angle = 0.0;
+         newLine.intercept = referencePrice;
+         newLine.touchCount = touchCount;
+         newLine.creationTime = TimeCurrent();
+         newLine.status = TRENDLINE_ACTIVE;
+
+         newLine.strength = CalculateTrendLineStrength(newLine);
+
+         // إضافة الخط إلى المصفوفة
+         m_trendLines[m_lineCount] = newLine;
          
-         int size = ArraySize(m_lows);
-         ArrayResize(m_lows, size + 1);
-         m_lows[size] = low;
-      }
-   }
-   
-   return (ArraySize(m_highs) > 0 || ArraySize(m_lows) > 0);
-}
-
-//+------------------------------------------------------------------+
-//| كشف خطوط الاتجاه                                                |
-//+------------------------------------------------------------------+
-bool CTrendLineDetector::DetectTrendLines(void)
-{
-   if(!LoadPriceData()) 
-      return false;
-   if(!FindHighsAndLows()) 
-      return false;
-   
-   ArrayResize(m_trendlines, 0);
-   
-   // البحث عن خطوط اتجاه من القمم
-   int highs_count = ArraySize(m_highs);
-   for(int i = 0; i < highs_count - 1; i++)
-   {
-      for(int j = i + 1; j < highs_count; j++)
-      {
-         STrendLine trendline;
-         if(CalculateTrendLine(m_highs[i], m_highs[j], trendline))
-         {
-            if(IsTrendLineValid(trendline))
-            {
-               int size = ArraySize(m_trendlines);
-               ArrayResize(m_trendlines, size + 1);
-               m_trendlines[size] = trendline;
-            }
-         }
-      }
-   }
-   
-   // البحث عن خطوط اتجاه من القيعان  
-   int lows_count = ArraySize(m_lows);
-   for(int i = 0; i < lows_count - 1; i++)
-   {
-      for(int j = i + 1; j < lows_count; j++)
-      {
-         STrendLine trendline;
-         if(CalculateTrendLine(m_lows[i], m_lows[j], trendline))
-         {
-            if(IsTrendLineValid(trendline))
-            {
-               int size = ArraySize(m_trendlines);
-               ArrayResize(m_trendlines, size + 1);
-               m_trendlines[size] = trendline;
-            }
-         }
-      }
-   }
-   
-   // ترتيب خطوط الاتجاه حسب القوة
-   SortTrendLinesByStrength();
-   
-   return (ArraySize(m_trendlines) > 0);
-}
-
-//+------------------------------------------------------------------+
-//| حساب خط الاتجاه                                                 |
-//+------------------------------------------------------------------+
-bool CTrendLineDetector::CalculateTrendLine(const SPoint &point1, const SPoint &point2, STrendLine &trendline)
-{
-   // حساب الميل
-   double time_diff = (double)(point2.time - point1.time);
-   if(time_diff == 0) 
-      return false;
-   
-   // تحديث الهيكل بالطريقة الجديدة
-   trendline.point1.time = point1.time;
-   trendline.point1.price = point1.price;
-   trendline.point1.index = point1.bar_index;
-   trendline.point1.type = CHART_POINT_HIGH; // سيتم تحديده لاحقاً
-   
-   trendline.point2.time = point2.time;
-   trendline.point2.price = point2.price;
-   trendline.point2.index = point2.bar_index;
-   trendline.point2.type = CHART_POINT_HIGH; // سيتم تحديده لاحقاً
-   
-   // تحديث البيانات القديمة للتوافق
-   trendline.start_time = point1.time;
-   trendline.start_price = point1.price;
-   trendline.end_time = point2.time;
-   trendline.end_price = point2.price;
-   
-   trendline.slope = (point2.price - point1.price) / time_diff;
-   trendline.angle = CalculateTrendLineAngle(trendline);
-   
-   // تحديد الاتجاه
-   trendline.direction = DetermineTrendDirection(trendline.slope, m_min_slope_threshold);
-   
-   // حساب عدد اللمسات
-   trendline.touches = CountTouches(trendline);
-   
-   // حساب القوة
-   trendline.strength = CalculateLineStrength(trendline);
-   
-   trendline.isValid = true;
-   trendline.chart_id = ChartID();
-   trendline.object_name = GenerateObjectName(trendline);
-   
-   return true;
-}
-
-//+------------------------------------------------------------------+
-//| حساب عدد اللمسات على خط الاتجاه                                |
-//+------------------------------------------------------------------+
-int CTrendLineDetector::CountTouches(const STrendLine &trendline)
-{
-   int touches = 0;
-   double tolerance = m_tolerance_pips * SymbolInfoDouble(m_symbol, SYMBOL_POINT);
-   
-   for(int i = 0; i < m_rates_total; i++)
-   {
-      if(m_rates[i].time < trendline.start_time || m_rates[i].time > trendline.end_time)
-         continue;
+         // إضافة نقاط اللمس
+         int maxTouchPoints = MathMin(touchCount, 20);
+         for(int k = 0; k < maxTouchPoints; k++)
+           {
+            m_touchPoints[m_lineCount][k] = touchPoints[k];
+           }
          
-      double line_price = GetPriceAtTime(trendline, m_rates[i].time);
-      
-      // فحص ما إذا كانت الشمعة تلمس الخط
-      if(MathAbs(m_rates[i].high - line_price) <= tolerance ||
-         MathAbs(m_rates[i].low - line_price) <= tolerance)
-      {
-         touches++;
-      }
-   }
-   
-   return touches;
-}
+         m_lineCount++;
+         linesFound++;
+        }
+     }
+
+   return linesFound;
+  }
 
 //+------------------------------------------------------------------+
-//| الحصول على السعر في وقت محدد على خط الاتجاه                    |
+//| التحقق من كسر خط الاتجاه |
 //+------------------------------------------------------------------+
-double CTrendLineDetector::GetPriceAtTime(const STrendLine &trendline, datetime time)
-{
-   if(time < trendline.start_time) 
-      time = trendline.start_time;
-   if(time > trendline.end_time) 
-      time = trendline.end_time;
-   
-   double time_diff = (double)(time - trendline.start_time);
-   return trendline.start_price + (trendline.slope * time_diff);
-}
-
-//+------------------------------------------------------------------+
-//| حساب قوة الخط                                                   |
-//+------------------------------------------------------------------+
-double CTrendLineDetector::CalculateLineStrength(const STrendLine &trendline)
-{
-   double strength = 0.0;
-   
-   // قوة بناءً على عدد اللمسات
-   strength += (trendline.touches * 20.0);
-   
-   // قوة بناءً على طول الخط الزمني
-   double time_factor = (double)(trendline.end_time - trendline.start_time) / (24 * 3600);
-   strength += MathMin(time_factor * 5.0, 30.0);
-   
-   // قوة بناءً على الميل
-   double slope_factor = MathAbs(trendline.slope) * 10000;
-   strength += MathMin(slope_factor * 10.0, 20.0);
-   
-   return MathMin(strength, 100.0);
-}
-
-//+------------------------------------------------------------------+
-//| فحص صحة خط الاتجاه                                              |
-//+------------------------------------------------------------------+
-bool CTrendLineDetector::IsTrendLineValid(const STrendLine &trendline)
-{
-   // فحص الحد الأدنى لعدد اللمسات
-   if(trendline.touches < m_min_touches) 
+bool CTrendLineDetector::CheckTrendLineBreakout(const STrendLineDetailed &trendline,
+      const double &high[], const double &low[],
+      const double &close[], const datetime &time[],
+      int currentBar, double &breakoutPrice)
+  {
+   if(currentBar < 1)
       return false;
-   
-   // فحص نطاق الميل
-   double abs_slope = MathAbs(trendline.slope);
-   if(abs_slope < m_min_slope_threshold || abs_slope > m_max_slope_threshold) 
-      return false;
-   
-   // فحص الحد الأدنى للقوة
-   if(trendline.strength < 30.0) 
-      return false;
-   
-   return true;
-}
 
-//+------------------------------------------------------------------+
-//| الحصول على خط اتجاه بالفهرس                                     |
-//+------------------------------------------------------------------+
-bool CTrendLineDetector::GetTrendLine(int index, STrendLine &trendline)
-{
-   if(index < 0 || index >= ArraySize(m_trendlines)) 
-      return false;
-   
-   trendline = m_trendlines[index];
-   return true;
-}
+   double currentPrice = GetPriceAtTime(trendline, time[currentBar]);
+   double tolerance = currentPrice * m_tolerancePercent;
 
-//+------------------------------------------------------------------+
-//| الحصول على أقوى خط اتجاه حسب الاتجاه                           |
-//+------------------------------------------------------------------+
-bool CTrendLineDetector::GetStrongestTrendLine(ENUM_PATTERN_DIRECTION direction, STrendLine &trendline)
-{
-   double max_strength = 0.0;
-   int best_index = -1;
-   
-   for(int i = 0; i < ArraySize(m_trendlines); i++)
-   {
-      if(m_trendlines[i].direction == direction && m_trendlines[i].strength > max_strength)
-      {
-         max_strength = m_trendlines[i].strength;
-         best_index = i;
-      }
-   }
-   
-   if(best_index >= 0)
-   {
-      trendline = m_trendlines[best_index];
-      return true;
-   }
-   
-   return false;
-}
+   bool breakout = false;
 
-//+------------------------------------------------------------------+
-//| الحصول على الاتجاه العام                                        |
-//+------------------------------------------------------------------+
-ENUM_PATTERN_DIRECTION CTrendLineDetector::GetOverallTrend(void)
-{
-   double bullish_strength = GetTrendStrength(PATTERN_BULLISH);
-   double bearish_strength = GetTrendStrength(PATTERN_BEARISH);
-   
-   if(bullish_strength > bearish_strength + 20.0)
-      return PATTERN_BULLISH;
-   else if(bearish_strength > bullish_strength + 20.0)
-      return PATTERN_BEARISH;
-   else
-      return PATTERN_NEUTRAL;
-}
-
-//+------------------------------------------------------------------+
-//| الحصول على قوة الاتجاه حسب النوع                                |
-//+------------------------------------------------------------------+
-double CTrendLineDetector::GetTrendStrength(ENUM_PATTERN_DIRECTION direction)
-{
-   double total_strength = 0.0;
-   int count = 0;
-   
-   for(int i = 0; i < ArraySize(m_trendlines); i++)
-   {
-      if(m_trendlines[i].direction == direction)
-      {
-         total_strength += m_trendlines[i].strength;
-         count++;
-      }
-   }
-   
-   return (count > 0) ? total_strength / count : 0.0;
-}
-
-//+------------------------------------------------------------------+
-//| ترتيب خطوط الاتجاه حسب القوة                                    |
-//+------------------------------------------------------------------+
-void CTrendLineDetector::SortTrendLinesByStrength(void)
-{
-   int count = ArraySize(m_trendlines);
-   if(count <= 1) 
-      return;
-   
-   // ترتيب تنازلي حسب القوة (Bubble Sort)
-   for(int i = 0; i < count - 1; i++)
-   {
-      for(int j = 0; j < count - i - 1; j++)
-      {
-         if(m_trendlines[j].strength < m_trendlines[j + 1].strength)
-         {
-            STrendLine temp = m_trendlines[j];
-            m_trendlines[j] = m_trendlines[j + 1];
-            m_trendlines[j + 1] = temp;
-         }
-      }
-   }
-}
-
-//+------------------------------------------------------------------+
-//| توليد اسم كائن فريد                                              |
-//+------------------------------------------------------------------+
-string CTrendLineDetector::GenerateObjectName(const STrendLine &trendline)
-{
-   return StringFormat("TrendLine_%s_%d_%d", 
-                      EnumToString(trendline.direction),
-                      (int)trendline.start_time,
-                      (int)trendline.end_time);
-}
-
-//+------------------------------------------------------------------+
-//| رسم خطوط الاتجاه على المخطط                                     |
-//+------------------------------------------------------------------+
-bool CTrendLineDetector::DrawTrendLines(long chart_id = 0)
-{
-   if(chart_id == 0) 
-      chart_id = ChartID();
-   
-   bool success = true;
-   
-   for(int i = 0; i < ArraySize(m_trendlines); i++)
-   {
-      if(!AddTrendLineToChart(m_trendlines[i], chart_id))
-         success = false;
-   }
-   
-   ChartRedraw(chart_id);
-   return success;
-}
-
-//+------------------------------------------------------------------+
-//| إضافة خط اتجاه للمخطط                                           |
-//+------------------------------------------------------------------+
-bool CTrendLineDetector::AddTrendLineToChart(const STrendLine &trendline, long chart_id)
-{
-   // إنشاء خط الاتجاه على الرسم البياني
-   if(!ObjectCreate(chart_id, trendline.object_name, OBJ_TREND, 0, 
-                   trendline.start_time, trendline.start_price,
-                   trendline.end_time, trendline.end_price))
-   {
-      Print("خطأ في إنشاء كائن خط الاتجاه: ", GetLastError());
-      return false;
-   }
-   
-   // تحديد لون الخط حسب الاتجاه
-   color line_color;
    switch(trendline.direction)
+     {
+      case TRENDLINE_ASCENDING:
+         // كسر هبوطي لخط الاتجاه الصاعد
+         if(close[currentBar] < currentPrice - tolerance)
+           {
+            breakout = true;
+            breakoutPrice = currentPrice;
+           }
+         break;
+
+      case TRENDLINE_DESCENDING:
+         // كسر صاعد لخط الاتجاه الهابط
+         if(close[currentBar] > currentPrice + tolerance)
+           {
+            breakout = true;
+            breakoutPrice = currentPrice;
+           }
+         break;
+
+      case TRENDLINE_HORIZONTAL:
+         // كسر في أي اتجاه للخط الأفقي
+         if(MathAbs(close[currentBar] - currentPrice) > tolerance)
+           {
+            breakout = true;
+            breakoutPrice = currentPrice;
+           }
+         break;
+     }
+
+   return breakout;
+  }
+
+//+------------------------------------------------------------------+
+//| حساب قوة خط الاتجاه |
+//+------------------------------------------------------------------+
+ENUM_TRENDLINE_STRENGTH CTrendLineDetector::CalculateTrendLineStrength(const STrendLineDetailed &trendline)
+  {
+   double score = 0.0;
+
+// عدد نقاط اللمس
+   if(trendline.touchCount >= 5)
+      score += 3.0;
+   else if(trendline.touchCount >= 3)
+      score += 2.0;
+   else if(trendline.touchCount >= 2)
+      score += 1.0;
+
+// معامل التحديد
+   if(trendline.r_squared >= 0.9)
+      score += 3.0;
+   else if(trendline.r_squared >= 0.8)
+      score += 2.0;
+   else if(trendline.r_squared >= 0.7)
+      score += 1.0;
+
+// عمر الخط
+   int ageInBars = (int)((TimeCurrent() - trendline.creationTime) / PeriodSeconds());
+   if(ageInBars >= 50)
+      score += 2.0;
+   else if(ageInBars >= 20)
+      score += 1.0;
+
+// تصنيف القوة
+   if(score >= 7.0)
+      return TRENDLINE_VERY_STRONG;
+   else if(score >= 5.0)
+      return TRENDLINE_STRONG;
+   else if(score >= 3.0)
+      return TRENDLINE_MODERATE;
+   else
+      return TRENDLINE_WEAK;
+  }
+
+//+------------------------------------------------------------------+
+//| إنشاء خط اتجاه |
+//+------------------------------------------------------------------+
+STrendLineDetailed CTrendLineDetector::CreateTrendLine(const SChartPoint &point1, const SChartPoint &point2,
+      ENUM_TRENDLINE_DIRECTION direction)
+  {
+   STrendLineDetailed trendline;
+   trendline.Reset();
+
+   trendline.id = GenerateUniqueId();
+   trendline.name = EnumToString(direction) + "_" + IntegerToString(trendline.id);
+   trendline.direction = direction;
+   trendline.startPoint = point1;
+   trendline.endPoint = point2;
+   trendline.creationTime = TimeCurrent();
+   trendline.status = TRENDLINE_ACTIVE;
+
+// حساب الميل والزاوية
+   double deltaPrice = point2.price - point1.price;
+   double deltaTime = (double)(point2.barIndex - point1.barIndex);
+
+   if(deltaTime != 0)
+     {
+      trendline.slope = deltaPrice / deltaTime;
+      trendline.angle = MathArctan(trendline.slope) * 180.0 / M_PI;
+     }
+
+// حساب نقطة التقاطع
+   trendline.intercept = point1.price - (trendline.slope * (double)point1.barIndex);
+
+// تعيين عدد نقاط اللمس الأولية
+   trendline.touchCount = 2;
+
+   return trendline;
+  }
+
+//+------------------------------------------------------------------+
+//| التحقق من صحة خط الاتجاه |
+//+------------------------------------------------------------------+
+bool CTrendLineDetector::ValidateTrendLine(const STrendLineDetailed &trendline,
+      const double &high[], const double &low[],
+      const datetime &time[], int rates_total)
+  {
+// التحقق من الزاوية
+   if(MathAbs(trendline.angle) > m_maxAngleDegrees)
+      return false;
+
+// البحث عن نقاط لمس إضافية
+   int additionalTouches = 0;
+   double tolerance = (high[rates_total-1] - low[rates_total-1]) * m_tolerancePercent;
+
+   for(int i = trendline.startPoint.barIndex + 1; i < trendline.endPoint.barIndex; i++)
+     {
+      double expectedPrice = trendline.intercept + (trendline.slope * (double)i);
+
+      if(trendline.direction == TRENDLINE_ASCENDING)
+        {
+         if(MathAbs(low[i] - expectedPrice) <= tolerance)
+            additionalTouches++;
+        }
+      else if(trendline.direction == TRENDLINE_DESCENDING)
+        {
+         if(MathAbs(high[i] - expectedPrice) <= tolerance)
+            additionalTouches++;
+        }
+     }
+
+   return (additionalTouches >= 0); // يمكن تعديل هذا الشرط حسب الحاجة
+  }
+
+//+------------------------------------------------------------------+
+//| الحصول على السعر في وقت محدد |
+//+------------------------------------------------------------------+
+double CTrendLineDetector::GetPriceAtTime(const STrendLineDetailed &trendline, datetime time)
+  {
+   if(trendline.direction == TRENDLINE_HORIZONTAL)
+      return trendline.intercept;
+
+   // تحويل الوقت إلى مؤشر شمعة (تقريبي)
+   double barIndex = (double)time; // هذا تقريب - يفضل استخدام مؤشر شمعة فعلي
+   return trendline.intercept + (trendline.slope * barIndex);
+  }
+
+//+------------------------------------------------------------------+
+//| الحصول على خط اتجاه |
+//+------------------------------------------------------------------+
+STrendLineDetailed CTrendLineDetector::GetTrendLine(int index) const
+  {
+   STrendLineDetailed emptyLine;
+   emptyLine.Reset();
+   if(index >= 0 && index < m_lineCount)
+      return m_trendLines[index];
+   return emptyLine;
+  }
+
+//+------------------------------------------------------------------+
+//| الحصول على خطوط الاتجاه النشطة |
+//+------------------------------------------------------------------+
+int CTrendLineDetector::GetActiveTrendLines(ENUM_TRENDLINE_DIRECTION direction, STrendLineDetailed &activeLines[])
+  {
+   int activeCount = 0;
+   ArrayResize(activeLines, 0);
+   
+   for(int i = 0; i < m_lineCount && activeCount < 50; i++)
+     {
+      if(m_trendLines[i].status == TRENDLINE_ACTIVE && 
+         (direction == TRENDLINE_ASCENDING || m_trendLines[i].direction == direction))
+        {
+         ArrayResize(activeLines, activeCount + 1);
+         activeLines[activeCount] = m_trendLines[i];
+         activeCount++;
+        }
+     }
+   
+   return activeCount;
+  }
+
+//+------------------------------------------------------------------+
+//| رسم خط اتجاه |
+//+------------------------------------------------------------------+
+void CTrendLineDetector::DrawTrendLine(const string symbol, const STrendLineDetailed &trendline,
+                                       color lineColor, int lineWidth,
+                                       ENUM_LINE_STYLE lineStyle)
+  {
+   // تحديد اسم الكائن
+   string objectName = "TrendLine_" + IntegerToString(trendline.id);
+   
+   // حذف الكائن السابق إذا وجد
+   ObjectDelete(0, objectName);
+   
+   // إنشاء خط الاتجاه
+   if(ObjectCreate(0, objectName, OBJ_TREND, 0, 
+                   trendline.startPoint.time, trendline.startPoint.price,
+                   trendline.endPoint.time, trendline.endPoint.price))
    {
-      case PATTERN_BULLISH: line_color = clrGreen; break;
-      case PATTERN_BEARISH: line_color = clrRed; break;
-      default: line_color = clrBlue; break;
+      ObjectSetInteger(0, objectName, OBJPROP_COLOR, lineColor);
+      ObjectSetInteger(0, objectName, OBJPROP_WIDTH, lineWidth);
+      ObjectSetInteger(0, objectName, OBJPROP_STYLE, lineStyle);
+      ObjectSetInteger(0, objectName, OBJPROP_RAY_RIGHT, true);
+      ObjectSetString(0, objectName, OBJPROP_TEXT, trendline.name);
    }
-   
-   // تطبيق خصائص الخط
-   ObjectSetInteger(chart_id, trendline.object_name, OBJPROP_COLOR, line_color);
-   ObjectSetInteger(chart_id, trendline.object_name, OBJPROP_WIDTH, 2);
-   ObjectSetInteger(chart_id, trendline.object_name, OBJPROP_STYLE, STYLE_SOLID);
-   ObjectSetInteger(chart_id, trendline.object_name, OBJPROP_RAY_RIGHT, true);
-   
-   // إضافة وصف
-   string description = StringFormat("%s خط اتجاه (القوة: %.1f%%)", 
-                                    EnumToString(trendline.direction), 
-                                    trendline.strength);
-   ObjectSetString(chart_id, trendline.object_name, OBJPROP_TOOLTIP, description);
-   
-   return true;
-}
+  }
 
 //+------------------------------------------------------------------+
-//| إزالة خطوط الاتجاه من المخطط                                    |
+//| رسم جميع خطوط الاتجاه |
 //+------------------------------------------------------------------+
-bool CTrendLineDetector::RemoveTrendLines(long chart_id = 0)
-{
-   if(chart_id == 0) 
-      chart_id = ChartID();
-   
-   for(int i = 0; i < ArraySize(m_trendlines); i++)
-   {
-      ObjectDelete(chart_id, m_trendlines[i].object_name);
-   }
-   
-   ChartRedraw(chart_id);
-   return true;
-}
+void CTrendLineDetector::DrawAllTrendLines(const string symbol)
+  {
+   for(int i = 0; i < m_lineCount; i++)
+     {
+      color lineColor = clrBlue;
+      
+      switch(m_trendLines[i].direction)
+        {
+         case TRENDLINE_ASCENDING:
+            lineColor = clrGreen;
+            break;
+         case TRENDLINE_DESCENDING:
+            lineColor = clrRed;
+            break;
+         case TRENDLINE_HORIZONTAL:
+            lineColor = clrBlue;
+            break;
+        }
+      
+      DrawTrendLine(symbol, m_trendLines[i], lineColor);
+     }
+  }
 
 //+------------------------------------------------------------------+
-//| تحديث خطوط الاتجاه                                              |
+//| تحديث خطوط الاتجاه |
 //+------------------------------------------------------------------+
-bool CTrendLineDetector::UpdateTrendLines(int startIdx = 0, int endIdx = 0)
-{
-   RemoveTrendLines();
-   return DetectTrendLines();
-}
+void CTrendLineDetector::UpdateTrendLines(const double &high[], const double &low[],
+                                          const double &close[], const datetime &time[],
+                                          int currentBar)
+  {
+   // تحديث حالة خطوط الاتجاه
+   for(int i = 0; i < m_lineCount; i++)
+     {
+      double breakoutPrice;
+      if(CheckTrendLineBreakout(m_trendLines[i], high, low, close, time, currentBar, breakoutPrice))
+        {
+         m_trendLines[i].status = TRENDLINE_BROKEN;
+        }
+     }
+  }
 
 //+------------------------------------------------------------------+
-//| تحويل SPoint إلى SChartPoint                                    |
+//| توليد معرف فريد |
 //+------------------------------------------------------------------+
-SChartPoint CTrendLineDetector::PointToChartPoint(const SPoint &point)
-{
-   SChartPoint chartPoint;
-   chartPoint.time = point.time;
-   chartPoint.price = point.price;
-   chartPoint.index = point.bar_index;
-   chartPoint.type = CHART_POINT_UNKNOWN;
+int CTrendLineDetector::GenerateUniqueId()
+  {
+   static int counter = 1000;
+   return counter++;
+  }
+
+//+------------------------------------------------------------------+
+//| مسح خطوط الاتجاه |
+//+------------------------------------------------------------------+
+void CTrendLineDetector::ClearTrendLines()
+  {
+   m_lineCount = 0;
+   for(int i = 0; i < 100; i++)
+     {
+      m_trendLines[i].Reset();
+      for(int j = 0; j < 20; j++)
+        {
+         m_touchPoints[i][j].price = 0.0;
+         m_touchPoints[i][j].barIndex = -1;
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| إزالة خطوط الاتجاه المكسورة |
+//+------------------------------------------------------------------+
+void CTrendLineDetector::RemoveBrokenTrendLines()
+  {
+   int writeIndex = 0;
    
-   return chartPoint;
-}
-
-//+------------------------------------------------------------------+
-//| تحويل SChartPoint إلى SPoint                                    |
-//+------------------------------------------------------------------+
-SPoint CTrendLineDetector::ChartPointToPoint(const SChartPoint &chartPoint)
-{
-   SPoint point;
-   point.time = chartPoint.time;
-   point.price = chartPoint.price;
-   point.bar_index = chartPoint.index;
+   // ضغط المصفوفة بإزالة الخطوط المكسورة
+   for(int i = 0; i < m_lineCount; i++)
+     {
+      if(m_trendLines[i].status != TRENDLINE_BROKEN)
+        {
+         if(writeIndex != i)
+           {
+            m_trendLines[writeIndex] = m_trendLines[i];
+            // نسخ نقاط اللمس
+            for(int j = 0; j < 20; j++)
+              {
+               m_touchPoints[writeIndex][j] = m_touchPoints[i][j];
+              }
+           }
+         writeIndex++;
+        }
+     }
    
-   return point;
-}
+   m_lineCount = writeIndex;
+  }
 
 //+------------------------------------------------------------------+
-//| فحص إذا كانت النقطة على الخط                                    |
+//| البحث عن نقاط الارتكاز |
 //+------------------------------------------------------------------+
-bool CTrendLineDetector::IsPointOnLine(const SPoint &point, const STrendLine &trendline, double tolerance)
-{
-   double line_price = GetPriceAtTime(trendline, point.time);
-   return (MathAbs(point.price - line_price) <= tolerance);
-}
+bool CTrendLineDetector::FindPivotPoints(const double &high[], const double &low[],
+      int start, int end, SChartPoint &pivots[])
+  {
+   ArrayResize(pivots, 0);
+   int pivotCount = 0;
+   int lookback = 3; // البحث في 3 شموع للخلف والأمام
+
+   for(int i = start + lookback; i <= end - lookback && pivotCount < 100; i++)
+     {
+      bool isPivotHigh = true;
+      bool isPivotLow = true;
+
+      // التحقق من نقطة ارتكاز عليا
+      for(int j = i - lookback; j <= i + lookback; j++)
+        {
+         if(j != i && high[j] >= high[i])
+           {
+            isPivotHigh = false;
+            break;
+           }
+        }
+
+      // التحقق من نقطة ارتكاز سفلى
+      for(int j = i - lookback; j <= i + lookback; j++)
+        {
+         if(j != i && low[j] <= low[i])
+           {
+            isPivotLow = false;
+            break;
+           }
+        }
+
+      if(isPivotHigh || isPivotLow)
+        {
+         ArrayResize(pivots, pivotCount + 1);
+         pivots[pivotCount].price = isPivotHigh ? high[i] : low[i];
+         pivots[pivotCount].barIndex = i;
+         pivots[pivotCount].pointType = isPivotHigh ? CHART_POINT_HIGH : CHART_POINT_LOW;
+         pivots[pivotCount].isConfirmed = true;
+         pivotCount++;
+        }
+     }
+
+   return pivotCount > 0;
+  }
+
+//+------------------------------------------------------------------+
+//| حساب المسافة من الخط |
+//+------------------------------------------------------------------+
+double CTrendLineDetector::CalculateLineDistance(const STrendLineDetailed &trendline,
+                                                 const SChartPoint &point)
+  {
+   double expectedPrice = trendline.intercept + (trendline.slope * (double)point.barIndex);
+   return MathAbs(point.price - expectedPrice);
+  }
+
+//+------------------------------------------------------------------+
+//| حساب معامل التحديد |
+//+------------------------------------------------------------------+
+double CTrendLineDetector::CalculateR_Squared(int lineIndex)
+  {
+   if(lineIndex < 0 || lineIndex >= m_lineCount || m_trendLines[lineIndex].touchCount < 2)
+      return 0.0;
+   
+   // حساب متوسط الأسعار
+   double avgPrice = 0.0;
+   int validPoints = MathMin(m_trendLines[lineIndex].touchCount, 20);
+   
+   for(int i = 0; i < validPoints; i++)
+     {
+      avgPrice += m_touchPoints[lineIndex][i].price;
+     }
+   avgPrice /= validPoints;
+   
+   // حساب مجموع المربعات
+   double totalSumSquares = 0.0;
+   double residualSumSquares = 0.0;
+   
+   for(int i = 0; i < validPoints; i++)
+     {
+      double actualPrice = m_touchPoints[lineIndex][i].price;
+      double predictedPrice = m_trendLines[lineIndex].intercept + (m_trendLines[lineIndex].slope * (double)m_touchPoints[lineIndex][i].barIndex);
+      
+      totalSumSquares += MathPow(actualPrice - avgPrice, 2);
+      residualSumSquares += MathPow(actualPrice - predictedPrice, 2);
+     }
+   
+   if(totalSumSquares == 0.0)
+      return 0.0;
+   
+   return 1.0 - (residualSumSquares / totalSumSquares);
+  }
+
+//+------------------------------------------------------------------+
+//| التحقق من قرب النقطة من الخط |
+//+------------------------------------------------------------------+
+bool CTrendLineDetector::IsPointNearLine(const STrendLineDetailed &trendline, const SChartPoint &point)
+  {
+   double distance = CalculateLineDistance(trendline, point);
+   double tolerance = point.price * m_tolerancePercent;
+   return distance <= tolerance;
+  }
+
+//+------------------------------------------------------------------+
+//| إضافة نقطة لمس |
+//+------------------------------------------------------------------+
+void CTrendLineDetector::AddTouchPoint(int lineIndex, const SChartPoint &point)
+  {
+   if(lineIndex < 0 || lineIndex >= m_lineCount)
+      return;
+      
+   if(m_trendLines[lineIndex].touchCount < 20)
+     {
+      m_touchPoints[lineIndex][m_trendLines[lineIndex].touchCount] = point;
+      m_trendLines[lineIndex].touchCount++;
+      m_trendLines[lineIndex].lastTouchTime = point.time;
+     }
+  }
+
+//+------------------------------------------------------------------+
